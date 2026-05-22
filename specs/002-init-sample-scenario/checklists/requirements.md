@@ -35,11 +35,14 @@
   `001-souji-cli-recipe-plan` (XDG paths, bare-name resolution, exit codes,
   built-in recipes). Where it touches an existing rule, it cites the parent FR
   number (e.g., parent FR-007b on the scenario directory being user-provisioned).
-- Three areas where reasonable defaults were chosen without a `[NEEDS
-  CLARIFICATION]` marker, with rationale documented in Assumptions:
-  - Default bare name is `sample` (not `weekly`) — see Assumptions §2.
-  - Default sample references all three built-in recipes against `~/work` —
-    see Assumptions §3.
-  - The sample is plain UTF-8 Ruby with no shebang and no execute bit — see
-    Assumptions §5.
-- Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
+- Five Clarifications session items recorded under `## Clarifications > Session
+  2026-05-22` in `spec.md`, resolving the remaining open decisions:
+  1. Default bare name → `default` (was `sample`).
+  2. Sample recipe scope → `git-worktree` only; the other built-ins appear
+     commented-out with enable instructions.
+  3. `<name>` validation → strict ASCII allowlist
+     `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$` (FR-004).
+  4. Non-regular destination → always rejected, `--force` does not override
+     (FR-005a).
+  5. Atomic write via temp file + `rename(2)` is required (FR-011, SC-006).
+- Items marked incomplete require spec updates before `/speckit-plan`.
