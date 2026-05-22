@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: RSpec + RuboCop (Ruby 4.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: RSpec
+        run: bundle exec rspec
+      - name: RuboCop
+        run: bundle exec rubocop
+
+  test-docker:
+    name: RSpec :docker (Ruby 4.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: RSpec (docker-tagged)
+        env:
+          WITH_DOCKER: "1"
+          # This job runs only the docker integration spec, so the
+          # project-wide 80% coverage gate doesn't apply.
+          NO_COVERAGE_GATE: "1"
+        run: bundle exec rspec spec/integration/recipes/docker_image_spec.rb
+
+  build:
+    name: gem build (Ruby 4.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ruby/setup-ruby@afeafc3d1ab54a631816aba4c914a0081c12ff2f # v1.310.0
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - run: gem build souji.gemspec
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: souji-gem
+          path: souji-*.gem
+          retention-days: 7

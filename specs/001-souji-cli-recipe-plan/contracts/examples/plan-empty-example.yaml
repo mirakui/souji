@@ -1,0 +1,9 @@
+souji_plan_version: 1
+souji_version: "0.1.0"
+generated_at: "2026-05-22T13:45:01+09:00"
+scenario:
+  path: "/Users/naruta/cleanups/weekly.rb"
+  content_sha256: "ab12cd34ef5601d7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1"
+target_roots:
+  - "/Users/naruta/work"
+items: []
