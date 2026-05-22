@@ -17,6 +17,10 @@ module Souji
         sh!("git", "-C", path, "init", "-q", "-b", "main")
         sh!("git", "-C", path, "config", "user.email", "spec@example.com")
         sh!("git", "-C", path, "config", "user.name", "Spec")
+        # Ensure the spec is independent of the developer's global
+        # gpg-sign / signing-key configuration.
+        sh!("git", "-C", path, "config", "commit.gpgsign", "false")
+        sh!("git", "-C", path, "config", "tag.gpgsign", "false")
         File.write(File.join(path, "README"), "ok\n")
         sh!("git", "-C", path, "add", "README")
         sh!("git", "-C", path, "commit", "-q", "-m", "init")

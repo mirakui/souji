@@ -20,12 +20,18 @@ module Souji
     module_function
 
     # Force-load every built-in recipe so Souji::Recipe.registry is
-    # populated. Idempotent.
+    # populated. Idempotent — handles the case where someone called
+    # Souji::Recipe.reset_registry! between invocations (tests do this).
     def load_builtins!
-      _ = GitWorktree
-      _ = TerraformProvider
-      _ = DockerImage
+      BUILTIN_NAMES.each do |name|
+        klass = const_get(class_name_for(name))
+        Souji::Recipe.register(name, klass) unless Souji::Recipe.registry.key?(name)
+      end
       Souji::Recipe.registry
+    end
+
+    def class_name_for(name)
+      name.split("-").map(&:capitalize).join
     end
   end
 end
