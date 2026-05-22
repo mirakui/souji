@@ -8,6 +8,14 @@
 
 **Input**: User description: "souji は ruby で書かれた cli ツール。ローカルディスクのディレクトリをクロールし、不要なファイルやディレクトリを見つけ出す。削除戦略を \"recipe\" と呼び、たとえば git-worktree recipe は対象リポジトリのディレクトリに置いて不要になった worktree を発見して削除対象にする。いま計画しているレシピは git-worktree / terraform-provider / docker-image など。これらのレシピを参照する削除シナリオファイルをユーザが Ruby DSL で書く。souji plan <scenario> -o soujiplan、souji apply soujiplan のように 2 フェーズで削除を実行する。プランファイルは人間が読めるように yaml で出力する"
 
+## Clarifications
+
+### Session 2026-05-22
+
+- Q: Ruby DSL ファイルの読み込み・評価モデルは？ → A: Trusted full Ruby — シナリオは信頼されたユーザーが書く前提で、`instance_eval` 等を用いて Ruby をそのまま評価する。サンドボックスや restricted DSL は導入しない。
+- Q: apply 時にシナリオハッシュが plan 生成時と異なっていた場合の振る舞いは？ → A: apply は plan ファイルのみを source of truth として動作する。apply 中に scenario ファイルを再ロード・再評価することはなく、scenario の差分検証は行わない。新鮮さの検証は FR-015 の per-item recipe re-verification に一本化する。
+- Q: 外部コマンド (git / terraform / docker) が不在・使用不可なときの振る舞いは？ → A: 該当 recipe のみをスキップし、stderr で警告。plan 全体は他の recipe を継続実行して完走させる (隔離制を担保)。
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Preview cleanup candidates from a scenario (Priority: P1)
@@ -137,9 +145,21 @@ attribution.
   recipe's criteria (e.g., a worktree that has been reactivated). Apply re-verifies
   each item against the originating recipe before deleting.
 - **Plan / apply machine mismatch**: A plan generated on one machine is applied on
-  another with different paths. Apply must refuse to act on paths it cannot resolve
-  or that fall outside the scenario's declared targets, rather than silently doing
-  nothing or, worse, acting on a coincidentally-named path.
+  another with different paths. Apply does not consult the scenario (FR-011a), so
+  it cannot reject the plan on scenario grounds; instead it relies on per-item
+  recipe re-verification (FR-015), which will fail to re-confirm candidates whose
+  paths cannot be resolved or no longer match recipe criteria, causing those items
+  to be skipped rather than mistakenly acted on.
+
+- **Scenario edited after plan**: The user edits the scenario file between `plan`
+  and `apply`. Apply does NOT detect or react to this — the plan file is the
+  source of truth (FR-011a). The scenario content hash recorded in plan metadata
+  exists for human audit only, not for apply-time enforcement.
+
+- **External command unavailable**: A recipe requires `docker` but docker is not
+  installed on the workstation. Plan skips that recipe with a stderr warning and
+  produces a plan covering the remaining recipes (FR-020); apply consumes only
+  what plan emitted, so the missing tool surfaces once at plan time.
 - **Concurrent invocation**: Two `apply` runs against the same plan file at the
   same time. Apply must not corrupt the action log and must not double-delete (a
   second deletion of an already-removed path is reported as skipped, not failed).
@@ -179,6 +199,12 @@ attribution.
 - **FR-005**: The DSL MUST be self-contained: a scenario file MUST run without
   requiring the user to write or wire up auxiliary Ruby code beyond the DSL
   constructs Souji exposes.
+- **FR-005a**: Scenario evaluation MUST treat the scenario file as trusted Ruby
+  source authored by the invoking user. Souji MAY evaluate the scenario with
+  `instance_eval` (or equivalent) without sandboxing or method-allow-list
+  restrictions. The threat model explicitly EXCLUDES executing untrusted /
+  third-party scenarios; users are responsible for reviewing scenario files
+  before invoking `plan` against them.
 - **FR-006**: A scenario file MUST be deterministic: given identical filesystem
   state, two runs of `plan` against the same scenario MUST produce equivalent plan
   files (same candidates, same ordering of candidates).
@@ -197,10 +223,16 @@ attribution.
   absolute path; the recipe that flagged it; a short human-readable justification
   ("worktree marked prunable", "provider cache unreferenced for 90+ days", etc.);
   and an item-level identifier sufficient for apply to refer back to it.
-- **FR-011**: The plan MUST also record top-level metadata sufficient for apply to
-  verify the plan came from the expected scenario: scenario file path, scenario
-  content hash, plan generation timestamp, Souji version, and the declared target
-  root(s).
+- **FR-011**: The plan MUST record top-level metadata for audit and reproducibility:
+  scenario file path (at time of plan), scenario content hash (informational only,
+  see FR-011a), plan generation timestamp, Souji version, and the declared target
+  root(s). The metadata exists so that a human reading the plan can identify which
+  scenario produced it; apply does not enforce it (see FR-011a).
+- **FR-011a**: `apply` MUST treat the plan file as the sole source of truth. `apply`
+  MUST NOT re-load, re-evaluate, or otherwise consult the scenario file. The
+  scenario content hash in plan metadata is informational only and MUST NOT be
+  validated at apply time. Freshness of each deletion candidate is enforced solely
+  by per-item recipe re-verification (FR-015).
 
 **Apply phase**
 
@@ -227,6 +259,13 @@ attribution.
   failure (user cancelled, nothing to do), and unexpected failure.
 - **FR-019**: Recipes MUST NOT enumerate or operate on paths outside the target
   roots declared in the invoking scenario.
+- **FR-020**: When a recipe's required external command (e.g., `git`, `terraform`,
+  `docker`) is absent or fails its availability probe, Souji MUST skip ONLY that
+  recipe's contribution and continue executing the remaining recipes in the
+  scenario. The skipped recipe MUST be reported on stderr with the recipe name and
+  the underlying reason. The command's exit code MUST still indicate success if no
+  other failures occurred, so that "expected absence" (e.g., docker not installed
+  on this workstation) does not turn into a hard failure of unrelated cleanup work.
 
 ### Key Entities
 
@@ -271,7 +310,10 @@ attribution.
 - The tool runs on developer workstations (macOS and Linux). Windows is out of
   scope for v1.
 - Ruby is acceptable both as the implementation language and as the scenario
-  authoring language (per user direction).
+  authoring language (per user direction). Scenarios are evaluated as trusted
+  Ruby; Souji does not sandbox or restrict the DSL surface (see FR-005a). Users
+  authoring or sharing scenarios are responsible for reviewing them before
+  invoking `plan`.
 - Recipe distribution: v1 ships only the built-in recipes (`git-worktree`,
   `terraform-provider`, `docker-image`). The internal recipe API is designed to
   permit additional recipes, but a public extension or plugin mechanism (gem-based

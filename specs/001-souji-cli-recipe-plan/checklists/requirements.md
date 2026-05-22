@@ -39,5 +39,8 @@
   direction), not in functional requirements.
 - No [NEEDS CLARIFICATION] markers — reasonable defaults were chosen per the
   spec-template guidance and documented in Assumptions.
-- Items marked incomplete would require spec updates before `/speckit-clarify` or
-  `/speckit-plan`.
+- `/speckit-clarify` session 2026-05-22 resolved three high-impact ambiguities
+  (DSL evaluation model, apply/scenario decoupling, external-command absence)
+  and they are recorded in spec.md under the `## Clarifications` section, with
+  matching updates in FR-005a, FR-011, FR-011a, FR-020, and Edge Cases.
+- Items marked incomplete would require spec updates before `/speckit-plan`.
