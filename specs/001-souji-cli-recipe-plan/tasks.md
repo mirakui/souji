@@ -194,15 +194,15 @@ exercised end-to-end.
 
 ### Tests for User Story 3 — Write these FIRST
 
-- [ ] T056 [P] [US3] Extend `spec/unit/dsl_spec.rb` with parameter-passing cases: `recipe "docker-image", older_than_days: 30` reaches `Recipe#enumerate`'s `params` hash with `{older_than_days: 30}`; unknown keyword args are accepted (recipes own their param schema)
-- [ ] T057 [P] [US3] Add integration test in `spec/integration/cli_plan_spec.rb` for `contracts/examples/scenario-personal.rb`: asserts `with_targets` constrains terraform-provider to `~/work/infra` and `~/playground/tf` only; asserts `docker-image` receives `older_than_days: 30`
-- [ ] T058 [P] [US3] Add integration test in `spec/integration/cli_plan_spec.rb` for `contracts/examples/scenario-multi-repo.rb`: `Dir.glob` in scenario enumerates targets correctly; produced plan contains per-repo worktrees
-- [ ] T059 [P] [US3] Add anti-pattern integration tests in `spec/integration/cli_plan_spec.rb` for `contracts/examples/scenario-anti-unknown-recipe.rb` (exit 65, stderr names the unknown recipe + available recipes) and `scenario-anti-scope-escape.rb` (exit 65, stderr identifies the offending `recipe` call)
+- [X] T056 [P] [US3] Extend `spec/unit/dsl_spec.rb` with parameter-passing cases: `recipe "docker-image", older_than_days: 30` reaches `Recipe#enumerate`'s `params` hash with `{older_than_days: 30}`; unknown keyword args are accepted (recipes own their param schema)
+- [X] T057 [P] [US3] Add integration test in `spec/integration/cli_plan_spec.rb` for `contracts/examples/scenario-personal.rb`: asserts `with_targets` constrains terraform-provider to `~/work/infra` and `~/playground/tf` only; asserts `docker-image` receives `older_than_days: 30`
+- [X] T058 [P] [US3] Add integration test in `spec/integration/cli_plan_spec.rb` for `contracts/examples/scenario-multi-repo.rb`: `Dir.glob` in scenario enumerates targets correctly; produced plan contains per-repo worktrees
+- [X] T059 [P] [US3] Add anti-pattern integration tests in `spec/integration/cli_plan_spec.rb` for `contracts/examples/scenario-anti-unknown-recipe.rb` (exit 65, stderr names the unknown recipe + available recipes) and `scenario-anti-scope-escape.rb` (exit 65, stderr identifies the offending `recipe` call)
 
 ### Implementation for User Story 3
 
-- [ ] T060 [US3] If T032 doesn't already pass keyword args through to `RecipeInvocation#params`, fix `Souji::DSL::Context#recipe` in `lib/souji/dsl.rb` so `**params` reaches `Recipe#enumerate`
-- [ ] T061 [US3] Implement `older_than_days:` parameter handling in `Souji::Recipes::DockerImage` in `lib/souji/recipes/docker_image.rb` (filter `enumerate` results by image `created_at`); illustrates the recipe-specific param pattern for future recipes
+- [X] T060 [US3] If T032 doesn't already pass keyword args through to `RecipeInvocation#params`, fix `Souji::DSL::Context#recipe` in `lib/souji/dsl.rb` so `**params` reaches `Recipe#enumerate`
+- [X] T061 [US3] Implement `older_than_days:` parameter handling in `Souji::Recipes::DockerImage` in `lib/souji/recipes/docker_image.rb` (filter `enumerate` results by image `created_at`); illustrates the recipe-specific param pattern for future recipes
 
 **Checkpoint US3**: All three example scenarios behave as documented; both
 anti-pattern fixtures fail safely.
@@ -214,14 +214,14 @@ anti-pattern fixtures fail safely.
 **Purpose**: Ship-readiness. Coverage gate, lint cleanup, CI, performance
 smoke test, packaging, and user-facing docs.
 
-- [ ] T062 [P] Write `README.md` at repo root: install, link to `specs/001-souji-cli-recipe-plan/quickstart.md`, list of v1 recipes with one-line descriptions, badges placeholder
-- [ ] T063 [P] Add `souji help recipes` subcommand in `lib/souji/cli.rb` that prints the registered recipes + their `description` declarations
-- [ ] T064 [P] Add `.github/workflows/ci.yml` running `bundle exec rspec` (excluding `:docker` tag for default matrix; include `:docker` on a separate job that boots dockerd) and `bundle exec rubocop` on Ruby 3.2 + 3.3
-- [ ] T065 [P] Performance smoke test in `spec/integration/perf_spec.rb`: synthetic `~/work` with 50 git repos × ~2 worktrees each; assert `souji plan` completes in under 30s (matches plan.md Performance Goals)
-- [ ] T066 [P] Enforce 80% coverage via `SimpleCov.minimum_coverage 80` in `spec/spec_helper.rb` and resolve any gaps revealed by `rake spec`
-- [ ] T067 [P] Resolve all rubocop warnings introduced during implementation; `bundle exec rubocop` exits 0
-- [ ] T068 Build the gem: `gem build souji.gemspec` succeeds and produces `souji-0.1.0.gem`; verify `gem install ./souji-0.1.0.gem && souji version` prints `souji 0.1.0`
-- [ ] T069 Reconcile `specs/001-souji-cli-recipe-plan/quickstart.md` with any user-visible behavior that drifted during implementation; update the spec checklists entry under "Notes" if so
+- [X] T062 [P] Write `README.md` at repo root: install, link to `specs/001-souji-cli-recipe-plan/quickstart.md`, list of v1 recipes with one-line descriptions, badges placeholder
+- [X] T063 [P] Add `souji help recipes` subcommand in `lib/souji/cli.rb` that prints the registered recipes + their `description` declarations
+- [X] T064 [P] Add `.github/workflows/ci.yml` running `bundle exec rspec` (excluding `:docker` tag for default matrix; include `:docker` on a separate job that boots dockerd) and `bundle exec rubocop` on Ruby 3.2 + 3.3
+- [X] T065 [P] Performance smoke test in `spec/integration/perf_spec.rb`: synthetic `~/work` with 50 git repos × ~2 worktrees each; assert `souji plan` completes in under 30s (matches plan.md Performance Goals)
+- [X] T066 [P] Enforce 80% coverage via `SimpleCov.minimum_coverage 80` in `spec/spec_helper.rb` and resolve any gaps revealed by `rake spec`
+- [X] T067 [P] Resolve all rubocop warnings introduced during implementation; `bundle exec rubocop` exits 0
+- [X] T068 Build the gem: `gem build souji.gemspec` succeeds and produces `souji-0.1.0.gem`; verify `gem install ./souji-0.1.0.gem && souji version` prints `souji 0.1.0`
+- [X] T069 Reconcile `specs/001-souji-cli-recipe-plan/quickstart.md` with any user-visible behavior that drifted during implementation; update the spec checklists entry under "Notes" if so
 
 ---
 

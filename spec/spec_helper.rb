@@ -4,7 +4,9 @@ require "simplecov"
 SimpleCov.start do
   enable_coverage :branch
   add_filter "/spec/"
-  minimum_coverage 80 if ENV["COVERAGE_GATE"] == "1"
+  # 80% line coverage is the project-wide quality gate (per CLAUDE.md).
+  # Toggle off only by setting NO_COVERAGE_GATE=1.
+  minimum_coverage line: 80 if ENV["NO_COVERAGE_GATE"] != "1"
 end
 
 $LOAD_PATH.unshift File.expand_path("../lib", __dir__)
@@ -32,4 +34,5 @@ RSpec.configure do |config|
   config.filter_run_excluding(:docker) unless ENV["WITH_DOCKER"] == "1"
   config.filter_run_excluding(:terraform) unless ENV["WITH_TERRAFORM"] == "1"
   config.filter_run_excluding(:git) if ENV["WITHOUT_GIT"] == "1"
+  config.filter_run_excluding(:perf) unless ENV["WITH_PERF"] == "1"
 end

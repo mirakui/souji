@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Ruby ${{ matrix.ruby }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ["3.2", "3.3"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+      - name: RSpec
+        run: bundle exec rspec
+      - name: RuboCop
+        run: bundle exec rubocop
+
+  test-docker:
+    name: Ruby 3.3 (with docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - name: RSpec (docker-tagged)
+        env:
+          WITH_DOCKER: "1"
+        run: bundle exec rspec spec/integration/recipes/docker_image_spec.rb
+
+  build:
+    name: gem build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+      - run: gem build souji.gemspec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: souji-gem
+          path: souji-*.gem
+          retention-days: 7
