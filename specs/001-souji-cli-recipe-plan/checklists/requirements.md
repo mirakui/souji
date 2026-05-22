@@ -43,4 +43,15 @@
   (DSL evaluation model, apply/scenario decoupling, external-command absence)
   and they are recorded in spec.md under the `## Clarifications` section, with
   matching updates in FR-005a, FR-011, FR-011a, FR-020, and Edge Cases.
+- 2026-05-22 follow-up: scenario / plan file locations standardized on XDG
+  Base Directory (`$XDG_CONFIG_HOME/souji/scenario/`, `$XDG_CACHE_HOME/souji/`).
+  Recorded in spec.md Clarifications and in new FR-007a / FR-007b; propagated
+  to contracts/cli-commands.md, contracts/scenario-dsl.md, quickstart.md,
+  research.md (R12), and plan.md (Souji::Paths module).
+- 2026-05-22 follow-up: action log default destination moved to
+  `$XDG_STATE_HOME/souji/log/<UTC-timestamp>-<plan-basename>.jsonl` (additive
+  to stderr) for an automatic audit trail aligned with Constitution V. New
+  FR-017a / FR-017b in spec.md plus an Edge Case for unwritable log dir;
+  contracts/cli-commands.md and contracts/action-log-schema.md updated;
+  research.md gains R13.
 - Items marked incomplete would require spec updates before `/speckit-plan`.

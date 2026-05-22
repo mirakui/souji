@@ -15,6 +15,8 @@
 - Q: Ruby DSL ファイルの読み込み・評価モデルは？ → A: Trusted full Ruby — シナリオは信頼されたユーザーが書く前提で、`instance_eval` 等を用いて Ruby をそのまま評価する。サンドボックスや restricted DSL は導入しない。
 - Q: apply 時にシナリオハッシュが plan 生成時と異なっていた場合の振る舞いは？ → A: apply は plan ファイルのみを source of truth として動作する。apply 中に scenario ファイルを再ロード・再評価することはなく、scenario の差分検証は行わない。新鮮さの検証は FR-015 の per-item recipe re-verification に一本化する。
 - Q: 外部コマンド (git / terraform / docker) が不在・使用不可なときの振る舞いは？ → A: 該当 recipe のみをスキップし、stderr で警告。plan 全体は他の recipe を継続実行して完走させる (隔離制を担保)。
+- Q: シナリオファイルと plan 出力ファイルのデフォルト配置は？ → A: XDG Base Directory 規約に従う。シナリオは `$XDG_CONFIG_HOME/souji/scenario/<name>.rb` (デフォルト `~/.config/souji/scenario/`) からの名前解決、plan 出力は `$XDG_CACHE_HOME/souji/<name>.soujiplan` (デフォルト `~/.cache/souji/`) に書き出す。引数が `/` を含む / `~` で始まる / `.rb` で終わる場合は従来通りファイルパスとして扱い、それ以外は裸の名前として XDG ディレクトリ配下を探索する。これは `souji plan` の入出力と `souji apply` の plan 入力の両方に適用する。
+- Q: apply の action log は audit のためデフォルトでファイルに残すべきか？ → A: 残す。デフォルトで `$XDG_STATE_HOME/souji/log/<UTC-timestamp>-<plan-basename>.jsonl` (デフォルト `~/.local/state/souji/log/`) に JSONL で書き出し、同時に stderr にも流す (現状の振る舞いは維持)。`--log-file <path>` で書き出し先を上書きでき、`--no-log-file` でファイル書き出しを無効化できる (stderr のみ)。`$XDG_STATE_HOME/souji/log/` は apply 時に on-demand 作成する。
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -169,6 +171,22 @@ attribution.
 - **Empty scenario**: A scenario file that references no recipes or no targets.
   Plan produces an empty plan file and exits successfully, with a stderr note that
   no candidates were considered.
+
+- **Bare-name scenario missing under XDG config**: User runs `souji plan weekly`
+  but `$XDG_CONFIG_HOME/souji/scenario/weekly.rb` does not exist. Souji exits
+  with code 2 and stderr names the exact path it tried, so the user can tell
+  "I typo'd the name" from "I haven't created the file yet" (FR-007a).
+
+- **Bare-name plan missing under XDG cache**: User runs `souji apply weekly`
+  before ever running `souji plan weekly`. Same behavior as above — exit code
+  2 with the tried path on stderr.
+
+- **Log directory unwritable**: `$XDG_STATE_HOME/souji/log/` cannot be created
+  or written (read-only filesystem, permission denied). Apply MUST NOT abort —
+  it falls back to stderr-only emission, prints a one-line warning naming the
+  path, and continues with the requested deletions. The audit trail being
+  best-effort MUST NOT block the actual cleanup, but the failure MUST be
+  visible.
 - **Path outside scope**: A recipe attempts to flag a path outside the scenario's
   declared target roots. The plan must omit such items and report the attempt in
   stderr; apply must never touch them even if they appear in a hand-edited plan.
@@ -211,9 +229,34 @@ attribution.
 
 **Plan phase**
 
-- **FR-007**: The system MUST provide a `souji plan <scenario> -o <plan-file>`
+- **FR-007**: The system MUST provide a `souji plan <scenario> [-o <plan-file>]`
   command that crawls the directories referenced by the scenario, invokes each
-  recipe, and writes a plan file enumerating deletion candidates.
+  recipe, and writes a plan file enumerating deletion candidates. The
+  `<scenario>` argument and the `-o` value follow the XDG name resolution rules
+  in FR-007a.
+- **FR-007a**: Souji MUST resolve the `<scenario>` argument of `souji plan` and
+  the `<plan-file>` argument of `souji apply` as follows:
+  1. If the argument contains a path separator (`/`), starts with `~`, or ends
+     with `.rb` (scenarios) / `.soujiplan` (plans), it MUST be treated as a
+     filesystem path and resolved against the current working directory.
+  2. Otherwise (a "bare name"), Souji MUST treat the argument as a name and
+     look it up under the user's XDG directory:
+     - Scenarios: `$XDG_CONFIG_HOME/souji/scenario/<name>.rb`, defaulting
+       `$XDG_CONFIG_HOME` to `~/.config` when unset.
+     - Plans: `$XDG_CACHE_HOME/souji/<name>.soujiplan`, defaulting
+       `$XDG_CACHE_HOME` to `~/.cache` when unset.
+  3. When the resolved file does not exist, Souji MUST exit with a usage error
+     (exit code 2) whose stderr message includes the path that was tried, so
+     the user can distinguish "I typo'd the name" from "I haven't created the
+     file yet".
+- **FR-007b**: When `souji plan` is invoked with a bare-name `<scenario>` and
+  `-o` is omitted, the default output path MUST be
+  `$XDG_CACHE_HOME/souji/<name>.soujiplan` (with the same XDG fallback as
+  above). When `<scenario>` is a filesystem path and `-o` is omitted, the
+  default output path MUST be `$XDG_CACHE_HOME/souji/<basename-without-ext>.soujiplan`.
+  Souji MUST create `$XDG_CACHE_HOME/souji/` on demand if it does not exist;
+  it MUST NOT create `$XDG_CONFIG_HOME/souji/scenario/` (the config directory
+  is the user's to provision).
 - **FR-008**: `plan` MUST NOT modify any file or directory on disk. Read-only
   filesystem operations only.
 - **FR-009**: The plan file MUST be a human-readable, structured text file (YAML).
@@ -251,6 +294,18 @@ attribution.
   delete scope beyond what the originating recipe would have produced.)
 - **FR-017**: `apply` MUST emit a structured action log that, for every plan item,
   records the outcome (deleted, skipped, failed) and, on failure, the reason.
+- **FR-017a**: `apply` MUST write the action log to a file under
+  `$XDG_STATE_HOME/souji/log/` (defaulting `$XDG_STATE_HOME` to
+  `~/.local/state` when unset) by default, IN ADDITION to streaming it to
+  stderr. The default filename MUST encode the UTC timestamp of the apply
+  invocation and the plan's basename, so two runs against the same plan never
+  collide (e.g., `2026-05-22T13-50-00Z-weekly.jsonl`). Souji MUST create
+  `$XDG_STATE_HOME/souji/log/` on demand if it does not exist.
+- **FR-017b**: The user MUST be able to override the log destination with
+  `--log-file <path>` (writes to `<path>` instead of the XDG default; stderr
+  emission unchanged) and MUST be able to suppress file output entirely with
+  `--no-log-file` (stderr emission unchanged; no file is written). Passing
+  both `--log-file <path>` and `--no-log-file` is a usage error (exit code 2).
 
 **Safety & observability (cross-cutting)**
 
@@ -320,10 +375,19 @@ attribution.
   third-party recipes, recipe marketplace, etc.) is out of scope for v1.
 - The user has direct read/write access to the directories listed in their
   scenario; permission elevation, sudo, or remote-host operation is out of scope.
-- `<scenario>` is interpreted as a filesystem path to a Ruby DSL file. There is
-  no scenario registry or named-scenario lookup in v1.
-- Plan files default to UTF-8 encoded YAML. The default output filename when
-  `-o` is omitted is `soujiplan` (per the user's example command).
+- Scenario and plan resolution follows the XDG Base Directory Specification per
+  FR-007a / FR-007b. Bare names are resolved relative to
+  `$XDG_CONFIG_HOME/souji/scenario/` (scenarios) and
+  `$XDG_CACHE_HOME/souji/` (plans); fully qualified paths bypass XDG. There is
+  intentionally no "search both XDG and CWD" fallback because the explicit
+  rule keeps `souji plan weekly` and `souji plan ./weekly.rb` unambiguous.
+- Plan files default to UTF-8 encoded YAML. When `-o` is omitted the default
+  output path is `$XDG_CACHE_HOME/souji/<name>.soujiplan` per FR-007b.
+- Action logs default to `$XDG_STATE_HOME/souji/log/<UTC-timestamp>-<plan-basename>.jsonl`
+  per FR-017a (in addition to stderr). Souji creates
+  `$XDG_STATE_HOME/souji/log/` on demand. Log files are not auto-rotated or
+  pruned in v1; users who want them cleaned up can author a Souji scenario
+  that targets the log directory (eat your own dog food).
 - For deletions of files (as opposed to whole directories), Souji prefers
   reversible mechanisms (trash / `~/.Trash` on macOS, freedesktop trash on Linux)
   by default per Constitution Principle V; recipes that intrinsically operate on
