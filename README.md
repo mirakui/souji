@@ -96,3 +96,5 @@ The implementation plan, design contracts, and task breakdown live under
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+Copyright (c) 2026 Issei Naruta
