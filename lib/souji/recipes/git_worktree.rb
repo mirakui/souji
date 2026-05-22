@@ -33,21 +33,24 @@ module Souji
       end
 
       def verify(plan_item)
-        repo = repo_for(plan_item.path)
-        return [:skip, "owning git repository no longer exists"] unless repo
+        repo = repo_from_metadata(plan_item) || repo_for(plan_item.path)
+        return [:skip, "owning git repository no longer exists"] unless repo && Dir.exist?(repo)
         return [:skip, "worktree no longer registered with git"] unless still_prunable?(repo, plan_item.path)
 
         :ok
       end
 
       def delete(plan_item)
-        repo = repo_for(plan_item.path)
-        return [:failed, "owning git repository missing"] unless repo
+        repo = repo_from_metadata(plan_item) || repo_for(plan_item.path)
+        return [:failed, "owning git repository missing"] unless repo && Dir.exist?(repo)
 
-        _stdout, stderr, status = Open3.capture3("git", "-C", repo, "worktree", "remove", "--force", plan_item.path)
-        return :deleted if status.success?
-
-        [:failed, "git worktree remove failed: #{stderr.strip}"]
+        if Dir.exist?(plan_item.path)
+          delete_via_git(repo, plan_item.path)
+        else
+          # Worktree directory is already gone (the typical "prunable"
+          # case); just remove the registration in .git/worktrees/.
+          delete_metadata(repo, plan_item.path)
+        end
       end
 
       private
@@ -78,7 +81,7 @@ module Souji
         parse_porcelain(stdout).filter_map do |entry|
           next unless entry[:prunable] && entry[:worktree] && entry[:worktree] != repo
 
-          build_plan_item(entry)
+          build_plan_item(entry, repo: repo)
         end
       end
 
@@ -105,7 +108,7 @@ module Souji
         entries
       end
 
-      def build_plan_item(entry)
+      def build_plan_item(entry, repo:)
         suffix = entry[:prunable_reason].to_s.empty? ? "" : ": #{entry[:prunable_reason]}"
         Souji::PlanItem.new(
           id: Souji::PlanItem.generate_id("git-worktree"),
@@ -113,8 +116,16 @@ module Souji
           path: entry[:worktree],
           reason: "Worktree marked prunable by git#{suffix}",
           size_bytes: nil,
-          metadata: { "branch" => entry[:branch], "head" => entry[:head] }.compact
+          metadata: {
+            "repo" => repo,
+            "branch" => entry[:branch],
+            "head" => entry[:head]
+          }.compact
         )
+      end
+
+      def repo_from_metadata(plan_item)
+        plan_item.metadata["repo"]
       end
 
       # Walk upwards from `path` until we find a .git directory that
@@ -139,6 +150,37 @@ module Souji
         parse_porcelain(stdout).any? do |entry|
           entry[:worktree] == worktree_path && entry[:prunable]
         end
+      end
+
+      def delete_via_git(repo, path)
+        _stdout, stderr, status = Open3.capture3("git", "-C", repo, "worktree", "remove", "--force", path)
+        return :deleted if status.success?
+
+        [:failed, "git worktree remove failed: #{stderr.strip}"]
+      end
+
+      # Remove only the metadata directory in .git/worktrees/ that
+      # corresponds to this worktree path. We identify it by reading
+      # each entry's `gitdir` file, which points back at the worktree's
+      # ".git" link file.
+      def delete_metadata(repo, worktree_path)
+        worktrees_root = File.join(repo, ".git", "worktrees")
+        return [:failed, ".git/worktrees missing"] unless Dir.exist?(worktrees_root)
+
+        Dir.children(worktrees_root).each do |name|
+          gitdir_file = File.join(worktrees_root, name, "gitdir")
+          next unless File.file?(gitdir_file)
+
+          recorded = File.read(gitdir_file).strip
+          # `recorded` is the path to the worktree's `.git` link file,
+          # i.e., "<worktree-path>/.git"
+          next unless recorded == File.join(worktree_path, ".git")
+
+          require_relative "../trash"
+          outcome = Souji::Trash.dispose(File.join(worktrees_root, name))
+          return outcome
+        end
+        [:failed, "no .git/worktrees/<name>/ entry matched #{worktree_path}"]
       end
     end
   end

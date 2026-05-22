@@ -38,6 +38,32 @@ module Souji
       exit(exit_code) unless exit_code.zero?
     end
 
+    desc "apply PLAN", "Apply a previously generated plan"
+    long_desc <<~LONG
+      Resolve PLAN (bare name → $XDG_CACHE_HOME/souji/<name>.soujiplan,
+      otherwise treated as a filesystem path), prompt for confirmation,
+      then run each plan item through Recipe#verify + Recipe#delete.
+      Logs to stderr and (by default) to $XDG_STATE_HOME/souji/log/.
+    LONG
+    method_option :yes, type: :boolean, default: false,
+                        desc: "Proceed without the interactive y/N prompt"
+    method_option :dry_run, type: :boolean, default: false,
+                            desc: "Report what would be deleted without deleting"
+    method_option :log_file, type: :string,
+                             desc: "Override the action log destination"
+    method_option :no_log_file, type: :boolean, default: false,
+                                desc: "Suppress action log file (stderr only)"
+    def apply(plan)
+      exit_code = Commands::ApplyCommand.new.call(
+        plan,
+        yes: options[:yes],
+        dry_run: options[:dry_run],
+        log_file: options[:log_file],
+        no_log_file: options[:no_log_file]
+      )
+      exit(exit_code) unless exit_code.zero?
+    end
+
     desc "version", "Print the souji version and exit"
     def version
       $stdout.puts "souji #{Souji::VERSION}"
