@@ -35,6 +35,9 @@ jobs:
       - name: RSpec (docker-tagged)
         env:
           WITH_DOCKER: "1"
+          # This job runs only the docker integration spec, so the
+          # project-wide 80% coverage gate doesn't apply.
+          NO_COVERAGE_GATE: "1"
         run: bundle exec rspec spec/integration/recipes/docker_image_spec.rb
 
   build:
