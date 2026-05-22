@@ -3,6 +3,7 @@
 require_relative "../action_log"
 require_relative "../confirmation"
 require_relative "../errors"
+require_relative "../exit_codes"
 require_relative "../paths"
 require_relative "../plan"
 require_relative "../recipe"
@@ -29,19 +30,19 @@ module Souji
 
         Recipes.load_builtins!
         plan_path = resolve_plan_path(plan_arg)
-        return 2 unless plan_path
+        return ExitCodes::USAGE_ERROR unless plan_path
 
         plan = load_plan(plan_path)
-        return 66 unless plan
+        return ExitCodes::PLAN_ERROR unless plan
 
         decision = confirm(plan, plan_path, yes: yes, dry_run: dry_run)
-        return 130 if decision == :cancel
+        return ExitCodes::USER_CANCELLED if decision == :cancel
 
         execute(plan, plan_path, dry_run: dry_run, log_file: log_file, no_log_file: no_log_file)
       rescue StandardError => e
         @stderr.puts("[souji] unexpected error: #{e.class}: #{e.message}")
         @stderr.puts(e.backtrace.first(10).join("\n")) if ENV["SOUJI_DEBUG"]
-        1
+        ExitCodes::UNEXPECTED
       end
 
       private
@@ -86,7 +87,7 @@ module Souji
         log.summary
         log.close
 
-        log.failures? ? 73 : 0
+        log.failures? ? ExitCodes::APPLY_PARTIAL : ExitCodes::SUCCESS
       end
 
       def process_item(item, log, dry_run:)
@@ -168,7 +169,7 @@ module Souji
 
       def usage_error(message)
         @stderr.puts("[souji] usage error: #{message}")
-        2
+        ExitCodes::USAGE_ERROR
       end
     end
   end

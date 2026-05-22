@@ -8,6 +8,7 @@ module Souji
   # DSL, Scenario, Commands, ActionLog, Trash, Confirmation, CLI) are
   # autoloaded on first reference; tests can also `require "souji/<name>"`
   # explicitly when they need a specific module without pulling the rest.
+  autoload :ExitCodes,    "souji/exit_codes"
   autoload :Paths,        "souji/paths"
   autoload :PlanItem,     "souji/plan_item"
   autoload :Plan,         "souji/plan"

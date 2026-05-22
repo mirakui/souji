@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../errors"
+require_relative "../exit_codes"
 require_relative "../paths"
 require_relative "../plan"
 require_relative "../recipes"
@@ -21,29 +22,28 @@ module Souji
         @stderr = stderr
       end
 
-      # Returns an exit code (0 = success, 65 = scenario error,
-      # 2 = usage error, 1 = unexpected).
+      # Returns a Souji::ExitCodes::* value.
       def call(scenario_arg, output: nil, target_roots: [], quiet: false)
         Recipes.load_builtins!
         scenario_path = resolve_scenario_path(scenario_arg)
-        return 2 unless scenario_path
+        return ExitCodes::USAGE_ERROR unless scenario_path
 
         scenario = Scenario.from_file(scenario_path)
         merge_extra_targets!(scenario, target_roots)
 
         plan = scenario.run_plan(warn_io: quiet ? StringIO.new : @stderr)
         write_plan_and_summarize(plan, scenario_arg, output)
-        0
+        ExitCodes::SUCCESS
       rescue ScenarioError => e
         @stderr.puts("[souji] scenario error: #{e.message}")
-        65
+        ExitCodes::SCENARIO_ERROR
       rescue UnknownRecipeError => e
         @stderr.puts("[souji] unknown recipe: #{e.message}")
-        65
+        ExitCodes::SCENARIO_ERROR
       rescue StandardError => e
         @stderr.puts("[souji] unexpected error: #{e.class}: #{e.message}")
         @stderr.puts(e.backtrace.first(10).join("\n")) if ENV["SOUJI_DEBUG"]
-        1
+        ExitCodes::UNEXPECTED
       end
 
       private
