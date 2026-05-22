@@ -7,6 +7,7 @@ scenario:
 target_roots:
   - "/Users/naruta/work"
   - "/Users/naruta/playground"
+  - "/Users/naruta/.terraform.d/plugin-cache"
 items:
   # ---- git-worktree recipe (filesystem-backed, trashable) ----
   - id: "git-worktree:01HZQK2H4Z9YPC7A0F0F4F0F4F"

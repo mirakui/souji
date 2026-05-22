@@ -39,17 +39,17 @@ order.
 **Purpose**: Initialize the Ruby gem skeleton, build/lint/test tooling, and the
 trivial entry points required before any code can exercise Souji.
 
-- [ ] T001 Create directory structure at repo root: `exe/`, `lib/souji/commands/`, `lib/souji/recipes/`, `spec/support/`, `spec/unit/recipes/`, `spec/integration/recipes/`, `spec/tmp/` (gitignored)
-- [ ] T002 [P] Create `souji.gemspec` declaring name="souji", version reference, `required_ruby_version = ">= 3.2"`, runtime dep `thor ~> 1.3`, dev deps `rspec ~> 3.13`, `rubocop ~> 1`, `simplecov`
-- [ ] T003 [P] Create `Gemfile` with `gemspec` and `source "https://rubygems.org"`
-- [ ] T004 [P] Create `Rakefile` exposing `rake spec` (RSpec::Core::RakeTask) and `rake rubocop` (RuboCop::RakeTask), default task = `:spec`
-- [ ] T005 [P] Create `.rubocop.yml` with project rules (target Ruby 3.2, `Style/Documentation` disabled for now)
-- [ ] T006 [P] Create `.rspec` with `--color --require spec_helper --format documentation`
-- [ ] T007 [P] Create `spec/spec_helper.rb` wiring SimpleCov, autoloading `spec/support/**/*.rb`, declaring `:git` / `:docker` / `:terraform` tag-based skip filters
-- [ ] T008 [P] Create `exe/souji` (3-line shim: shebang, `require "souji/cli"`, `Souji::CLI.start(ARGV)`); chmod +x
-- [ ] T009 [P] Create `lib/souji.rb` top-level requires (version, errors, paths, plan_item, plan, recipe, recipes)
-- [ ] T010 [P] Create `lib/souji/version.rb` declaring `Souji::VERSION = "0.1.0"`
-- [ ] T011 [P] Create `.gitignore` for `*.gem`, `coverage/`, `.bundle/`, `Gemfile.lock` (lib-style gem), `spec/tmp/`
+- [X] T001 Create directory structure at repo root: `exe/`, `lib/souji/commands/`, `lib/souji/recipes/`, `spec/support/`, `spec/unit/recipes/`, `spec/integration/recipes/`, `spec/tmp/` (gitignored)
+- [X] T002 [P] Create `souji.gemspec` declaring name="souji", version reference, `required_ruby_version = ">= 3.2"`, runtime dep `thor ~> 1.3`, dev deps `rspec ~> 3.13`, `rubocop ~> 1`, `simplecov`
+- [X] T003 [P] Create `Gemfile` with `gemspec` and `source "https://rubygems.org"`
+- [X] T004 [P] Create `Rakefile` exposing `rake spec` (RSpec::Core::RakeTask) and `rake rubocop` (RuboCop::RakeTask), default task = `:spec`
+- [X] T005 [P] Create `.rubocop.yml` with project rules (target Ruby 3.2, `Style/Documentation` disabled for now)
+- [X] T006 [P] Create `.rspec` with `--color --require spec_helper --format documentation`
+- [X] T007 [P] Create `spec/spec_helper.rb` wiring SimpleCov, autoloading `spec/support/**/*.rb`, declaring `:git` / `:docker` / `:terraform` tag-based skip filters
+- [X] T008 [P] Create `exe/souji` (3-line shim: shebang, `require "souji/cli"`, `Souji::CLI.start(ARGV)`); chmod +x
+- [X] T009 [P] Create `lib/souji.rb` top-level requires (version, errors, paths, plan_item, plan, recipe, recipes)
+- [X] T010 [P] Create `lib/souji/version.rb` declaring `Souji::VERSION = "0.1.0"`
+- [X] T011 [P] Create `.gitignore` for `*.gem`, `coverage/`, `.bundle/`, `Gemfile.lock` (lib-style gem), `spec/tmp/`
 
 ---
 
@@ -64,30 +64,30 @@ unit spec per Constitution III.
 
 ### Souji::Paths (FR-007a / FR-007b — XDG bare-name vs path-shape resolution)
 
-- [ ] T012 [P] Write failing spec for `Souji::Paths` in `spec/unit/paths_spec.rb` covering: path-shape detection (`/`, `~`, `.rb`, `.soujiplan`), bare-name lookup under `$XDG_CONFIG_HOME/souji/scenario/` (scenarios) and `$XDG_CACHE_HOME/souji/` (plans), `$XDG_STATE_HOME/souji/log/` resolution, default fallbacks (`~/.config`, `~/.cache`, `~/.local/state`) when env vars unset, missing-file error message listing the tried path
-- [ ] T013 Implement `Souji::Paths` module in `lib/souji/paths.rb` to pass T012 (no behavior beyond what tests require)
+- [X] T012 [P] Write failing spec for `Souji::Paths` in `spec/unit/paths_spec.rb` covering: path-shape detection (`/`, `~`, `.rb`, `.soujiplan`), bare-name lookup under `$XDG_CONFIG_HOME/souji/scenario/` (scenarios) and `$XDG_CACHE_HOME/souji/` (plans), `$XDG_STATE_HOME/souji/log/` resolution, default fallbacks (`~/.config`, `~/.cache`, `~/.local/state`) when env vars unset, missing-file error message listing the tried path
+- [X] T013 Implement `Souji::Paths` module in `lib/souji/paths.rb` to pass T012 (no behavior beyond what tests require)
 
 ### Souji::PlanItem (data-model.md — immutable value object)
 
-- [ ] T014 [P] Write failing spec for `Souji::PlanItem` in `spec/unit/plan_item_spec.rb` covering: `Data.define` equality + hash, `id` format validation `<recipe-name>:<ULID>`, frozen instances, deep `metadata` access
-- [ ] T015 Implement `Souji::PlanItem` in `lib/souji/plan_item.rb` using `Data.define`
+- [X] T014 [P] Write failing spec for `Souji::PlanItem` in `spec/unit/plan_item_spec.rb` covering: `Data.define` equality + hash, `id` format validation `<recipe-name>:<ULID>`, frozen instances, deep `metadata` access
+- [X] T015 Implement `Souji::PlanItem` in `lib/souji/plan_item.rb` using `Data.define`
 
 ### Souji::Plan (contracts/plan-yaml-schema.md — YAML round-trip + validation)
 
-- [ ] T016 [P] Write failing spec for `Souji::Plan` in `spec/unit/plan_spec.rb` covering: `load_yaml` of `contracts/examples/plan-example.yaml` and `plan-empty-example.yaml`, round-trip `dump_yaml → load_yaml` byte-equality after timestamp normalization, `souji_plan_version` mismatch raises `Souji::IncompatiblePlanError`, scope-containment check rejects items outside `target_roots` with `Souji::ScopeViolationError`, `#summary` per-recipe counts
-- [ ] T017 Implement `Souji::Plan` in `lib/souji/plan.rb` and the error classes in `lib/souji/errors.rb` (define `Souji::Error`, `Souji::IncompatiblePlanError`, `Souji::ScopeViolationError`, `Souji::UnknownRecipeError`, `Souji::DuplicateRecipeError`)
+- [X] T016 [P] Write failing spec for `Souji::Plan` in `spec/unit/plan_spec.rb` covering: `load_yaml` of `contracts/examples/plan-example.yaml` and `plan-empty-example.yaml`, round-trip `dump_yaml → load_yaml` byte-equality after timestamp normalization, `souji_plan_version` mismatch raises `Souji::IncompatiblePlanError`, scope-containment check rejects items outside `target_roots` with `Souji::ScopeViolationError`, `#summary` per-recipe counts
+- [X] T017 Implement `Souji::Plan` in `lib/souji/plan.rb` and the error classes in `lib/souji/errors.rb` (define `Souji::Error`, `Souji::IncompatiblePlanError`, `Souji::ScopeViolationError`, `Souji::UnknownRecipeError`, `Souji::DuplicateRecipeError`)
 
 ### Souji::Recipe base class + registry (contracts/recipe-interface.md)
 
-- [ ] T018 [P] Write failing spec for `Souji::Recipe` in `spec/unit/recipe_registry_spec.rb` covering: `recipe_name` setter + validation (`/\A[a-z][a-z0-9-]*\z/`), `required_external_commands`, `description`, `inherited` hook registers subclass into `Souji::Recipe.registry`, duplicate `recipe_name` raises `Souji::DuplicateRecipeError`, class-level `available?(cmd)` probe via `command -v`
-- [ ] T019 Implement `Souji::Recipe` abstract base class in `lib/souji/recipe.rb`
-- [ ] T020 Implement `Souji::Recipes` module in `lib/souji/recipes.rb` providing autoload entries for the three built-in recipes (the recipe classes themselves come later, but the autoload glue lands here so `Souji::Recipe.registry` is populated on `require "souji"`)
+- [X] T018 [P] Write failing spec for `Souji::Recipe` in `spec/unit/recipe_registry_spec.rb` covering: `recipe_name` setter + validation (`/\A[a-z][a-z0-9-]*\z/`), `required_external_commands`, `description`, `inherited` hook registers subclass into `Souji::Recipe.registry`, duplicate `recipe_name` raises `Souji::DuplicateRecipeError`, class-level `available?(cmd)` probe via `command -v`
+- [X] T019 Implement `Souji::Recipe` abstract base class in `lib/souji/recipe.rb`
+- [X] T020 Implement `Souji::Recipes` module in `lib/souji/recipes.rb` providing autoload entries for the three built-in recipes (the recipe classes themselves come later, but the autoload glue lands here so `Souji::Recipe.registry` is populated on `require "souji"`)
 
 ### Test support helpers
 
-- [ ] T021 [P] Create `spec/support/tmp_dir.rb` providing an RSpec helper `with_tmp_dir { |path| ... }` that creates a scratch dir under `spec/tmp/` and trashes it after the example
-- [ ] T022 [P] Create `spec/support/git_repo_factory.rb` providing helpers to build a real git repo and attached worktrees (active + prunable) for integration specs
-- [ ] T023 [P] Create `spec/support/docker_helper.rb` that detects `docker` availability and exposes a `requires_docker!` helper that calls `skip` when the binary is missing (paired with the `:docker` tag filter in spec_helper)
+- [X] T021 [P] Create `spec/support/tmp_dir.rb` providing an RSpec helper `with_tmp_dir { |path| ... }` that creates a scratch dir under `spec/tmp/` and trashes it after the example
+- [X] T022 [P] Create `spec/support/git_repo_factory.rb` providing helpers to build a real git repo and attached worktrees (active + prunable) for integration specs
+- [X] T023 [P] Create `spec/support/docker_helper.rb` that detects `docker` availability and exposes a `requires_docker!` helper that calls `skip` when the binary is missing (paired with the `:docker` tag filter in spec_helper)
 
 **Checkpoint Phase 2**: Foundation ready — user story phases may now run in parallel.
 

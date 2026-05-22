@@ -1,0 +1,43 @@
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "spec/tmp/**/*"
+    - "vendor/**/*"
+    - "coverage/**/*"
+    # Scenario fixture files are user-facing DSL examples — they should
+    # read exactly like what a user would write in real life. RuboCop's
+    # "missing frozen_string_literal comment" and snake_case-filename
+    # rules don't apply.
+    - "specs/**/contracts/examples/scenario-*.rb"
+
+Gemspec/DevelopmentDependencies:
+  Enabled: false  # we use add_development_dependency in the gemspec
+
+Metrics/ClassLength:
+  Max: 150
+
+Style/Documentation:
+  Enabled: false
+
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+Layout/LineLength:
+  Max: 120
+
+Metrics/BlockLength:
+  Exclude:
+    - "spec/**/*"
+    - "souji.gemspec"
+    - "Rakefile"
+
+Metrics/MethodLength:
+  Max: 30
+
+Metrics/AbcSize:
+  Max: 30
