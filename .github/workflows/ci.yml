@@ -10,17 +10,13 @@ permissions:
 
 jobs:
   test:
-    name: Ruby ${{ matrix.ruby }}
+    name: RSpec + RuboCop (Ruby 4.0)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ruby: ["3.2", "3.3"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ruby/setup-ruby@b8d447ba7506ac7e0c8fbc50762276fb3b7df731 # v1
         with:
-          ruby-version: ${{ matrix.ruby }}
+          ruby-version: "4.0"
           bundler-cache: true
       - name: RSpec
         run: bundle exec rspec
@@ -28,13 +24,13 @@ jobs:
         run: bundle exec rubocop
 
   test-docker:
-    name: Ruby 3.3 (with docker)
+    name: RSpec :docker (Ruby 4.0)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ruby/setup-ruby@b8d447ba7506ac7e0c8fbc50762276fb3b7df731 # v1
         with:
-          ruby-version: "3.3"
+          ruby-version: "4.0"
           bundler-cache: true
       - name: RSpec (docker-tagged)
         env:
@@ -42,16 +38,16 @@ jobs:
         run: bundle exec rspec spec/integration/recipes/docker_image_spec.rb
 
   build:
-    name: gem build
+    name: gem build (Ruby 4.0)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: ruby/setup-ruby@v1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: ruby/setup-ruby@b8d447ba7506ac7e0c8fbc50762276fb3b7df731 # v1
         with:
-          ruby-version: "3.3"
+          ruby-version: "4.0"
           bundler-cache: true
       - run: gem build souji.gemspec
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: souji-gem
           path: souji-*.gem

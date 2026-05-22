@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   spec.name = "souji"
   spec.version = Souji::VERSION
   spec.authors = ["Issei Naruta"]
-  spec.email = ["naruta@ivry.jp"]
+  spec.email = ["mimitako@gmail.com"]
 
   spec.summary = "Recipe-based local-disk cleanup tool (plan/apply)"
   spec.description = <<~DESC
@@ -16,7 +16,7 @@ Gem::Specification.new do |spec|
     confirmation and per-item recipe re-verification.
   DESC
   spec.license = "MIT"
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 4.0.0"
 
   spec.files = Dir[
     "lib/**/*.rb",
