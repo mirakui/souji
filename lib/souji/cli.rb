@@ -3,6 +3,8 @@
 require "thor"
 require_relative "version"
 require_relative "commands"
+require_relative "recipe"
+require_relative "recipes"
 
 module Souji
   # Top-level CLI dispatcher. Each subcommand resolves to a

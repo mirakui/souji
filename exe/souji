@@ -1,5 +1,11 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# Allow running straight from a source checkout (./exe/souji) without -I lib.
+# When installed as a gem this points at the gem's own lib directory, which
+# RubyGems has already activated, so the guard makes it a no-op.
+lib = File.expand_path("../lib", __dir__)
+$LOAD_PATH.unshift(lib) if File.directory?(lib) && !$LOAD_PATH.include?(lib)
+
 require "souji/cli"
 Souji::CLI.start(ARGV)
