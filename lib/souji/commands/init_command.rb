@@ -43,24 +43,46 @@ module Souji
         #
         # This file is plain Ruby: loops, constants and helpers all work. The
         # DSL below just adds vocabulary. Run `souji recipes` for the live
-        # recipe list.
+        # recipe list and the options each one accepts.
         #
         # 1. Declare the directories souji may look at. Nothing outside a
-        #    declared target can be enumerated or deleted.
+        #    declared target can be enumerated or deleted, and the recipes
+        #    below need at least one target declared.
         #
         # target File.expand_path("~/work")
         #
-        # 2. Declare the recipes to run.
+        # 2. Declare the recipes to run. Options are keyword arguments and
+        #    are all optional; the values below are examples. Passing an
+        #    option a recipe does not declare is an error, so `souji plan`
+        #    catches a typo before it scans anything.
         #
-        # recipe "git-worktree"        # abandoned git worktrees under the targets
-        # recipe "terraform-provider"  # cached providers that no lockfile references
-        # recipe "docker-image"        # dangling docker images (path-independent)
+        # git-worktree -- abandoned git worktrees under the targets.
+        #   Takes no options.
         #
-        # Recipes take keyword params, e.g. only prune older docker layers:
+        # recipe "git-worktree"
         #
+        # terraform-provider -- cached provider versions that no
+        #   .terraform.lock.hcl under the targets references.
+        #
+        #   plugin_cache_dir:  provider cache to prune (default:
+        #                      $TF_PLUGIN_CACHE_DIR, else
+        #                      ~/.terraform.d/plugin-cache)
+        #
+        # recipe "terraform-provider"
+        # recipe "terraform-provider", plugin_cache_dir: "~/.terraform.d/plugin-cache"
+        #
+        # docker-image -- dangling images (no tag, no container ancestry).
+        #   Path-independent: it ignores the targets entirely.
+        #
+        #   older_than_days:  only propose images created at least this many
+        #                     days ago (default: no age filter)
+        #
+        # recipe "docker-image"
         # recipe "docker-image", older_than_days: 30
         #
-        # 3. Narrow a recipe to a subset of the targets with with_targets:
+        # 3. Narrow a recipe to a subset of the targets with with_targets.
+        #    The paths must sit inside an already-declared target -- this
+        #    narrows the scope, it cannot create one.
         #
         # with_targets "~/work/infra" do
         #   recipe "terraform-provider"

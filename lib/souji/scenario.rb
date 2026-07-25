@@ -59,7 +59,19 @@ module Souji
       @invocations = invocations
     end
 
+    # Resolve every recipe name and check every param against the recipes'
+    # declarations, reporting all offenders at once. Called by #run_plan
+    # before any enumeration: walking a home directory takes seconds, so a
+    # scenario must never get that far only to die on a typo in its last
+    # line.
+    def validate!
+      reject_unknown_recipes!
+      reject_undeclared_params!
+      nil
+    end
+
     def run_plan(now: Time.now, progress: Progress.null)
+      validate!
       items = []
       progress.scenario_start(@path, @target_roots)
       @invocations.each_with_index do |invocation, index|
@@ -88,6 +100,31 @@ module Souji
     end
 
     private
+
+    def reject_unknown_recipes!
+      unknown = @invocations.map(&:name).uniq.reject { |name| Recipe.registry.key?(name) }
+      return if unknown.empty?
+
+      raise UnknownRecipeError,
+            "unknown recipe #{unknown.map(&:inspect).join(", ")}; " \
+            "known recipes: #{Recipe.registry.keys.sort.join(", ")}"
+    end
+
+    def reject_undeclared_params!
+      offenses = @invocations.flat_map { |invocation| undeclared_params_for(invocation) }.uniq
+      return if offenses.empty?
+
+      raise ScenarioError, offenses.join("; ")
+    end
+
+    def undeclared_params_for(invocation)
+      recipe_class = Recipe.fetch(invocation.name)
+      declared = recipe_class.param_names
+      invocation.params.keys.reject { |key| declared.include?(key) }.map do |key|
+        "#{invocation.name} does not accept #{key.inspect} " \
+          "(accepts: #{declared.empty? ? "no params" : declared.map(&:inspect).join(", ")})"
+      end
+    end
 
     def enumerate_with(recipe_class, invocation, progress)
       instance = recipe_class.new

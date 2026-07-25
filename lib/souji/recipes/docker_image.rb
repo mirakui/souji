@@ -19,6 +19,7 @@ module Souji
       recipe_name "docker-image"
       required_external_commands "docker"
       description "Remove dangling docker images (no tag, no container ancestry)"
+      param :older_than_days, "Only propose images created at least this many days ago (default: no age filter)"
 
       def enumerate(_target_roots, params)
         older_than_days = params[:older_than_days]

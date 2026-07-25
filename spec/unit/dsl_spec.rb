@@ -54,6 +54,20 @@ RSpec.describe Souji::DSL::Context do
       expect { context.recipe("git-worktree", targets: ["/tmp/other"]) }
         .to raise_error(Souji::ScenarioError, %r{/tmp/other})
     end
+
+    # A `targets:` list is a narrowing of the declared target set, so with
+    # nothing declared there is nothing to narrow. Refusing here keeps the
+    # violation at scenario-evaluation time instead of surfacing it as a
+    # scope violation after a full filesystem scan.
+    it "raises ScenarioError when targets: is given but no target is declared" do
+      expect { context.recipe("git-worktree", targets: ["/tmp/a"]) }
+        .to raise_error(Souji::ScenarioError, /requires a `target` declaration/)
+    end
+
+    it "records an invocation with no targets when nothing is declared" do
+      context.recipe("docker-image")
+      expect(context.invocations.first.targets).to eq([])
+    end
   end
 
   describe "#with_targets" do
@@ -72,6 +86,16 @@ RSpec.describe Souji::DSL::Context do
       context.target("/tmp/a")
       expect { context.with_targets("/tmp/elsewhere") { context.recipe("docker-image") } }
         .to raise_error(Souji::ScenarioError, %r{/tmp/elsewhere})
+    end
+
+    it "raises ScenarioError when no target is declared to narrow" do
+      expect { context.with_targets("/tmp/a") { context.recipe("git-worktree") } }
+        .to raise_error(Souji::ScenarioError, /requires a `target` declaration/)
+    end
+
+    it "names the missing declaration to add in the error message" do
+      expect { context.with_targets("/tmp/a") { context.recipe("git-worktree") } }
+        .to raise_error(Souji::ScenarioError, %r{add `target "/tmp/a"`})
     end
   end
 

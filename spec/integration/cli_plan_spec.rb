@@ -180,6 +180,43 @@ RSpec.describe "souji plan (integration)" do
       expect(exit_code).to eq(65)
       expect(stderr.string).to include("git-worktreee")
     end
+
+    it "exits 65 before scanning when a later recipe name is a typo" do
+      install_scenario("late-typo", <<~RUBY)
+        target "/tmp"
+        recipe "git-worktree"
+        recipe "git-worktreee"
+      RUBY
+      expect(command.call("late-typo")).to eq(65)
+      expect(stderr.string).to include("git-worktreee")
+      expect(stderr.string).not_to include("scanning")
+    end
+  end
+
+  describe "unknown recipe param" do
+    it "exits 65 naming the param and the recipe's declared params" do
+      install_scenario("bad-param", <<~RUBY)
+        target "/tmp"
+        recipe "docker-image", older_than_day: 30
+      RUBY
+      expect(command.call("bad-param")).to eq(65)
+      expect(stderr.string).to include("older_than_day")
+      expect(stderr.string).to include("older_than_days")
+      expect(stderr.string).not_to include("scanning")
+    end
+  end
+
+  describe "with_targets with no declared target" do
+    it "exits 65 before scanning, naming the target declaration to add" do
+      install_scenario("no-target", <<~RUBY)
+        with_targets "/tmp" do
+          recipe "git-worktree"
+        end
+      RUBY
+      expect(command.call("no-target")).to eq(65)
+      expect(stderr.string).to include('add `target "/tmp"`')
+      expect(stderr.string).not_to include("scanning")
+    end
   end
 
   describe "scope-escape (anti-pattern fixture)" do

@@ -41,6 +41,13 @@ RSpec.describe "exe/souji (subprocess)" do
     expect(stdout).to include("terraform-provider")
   end
 
+  it "lists each recipe's declared options under it" do
+    stdout, stderr, status = run("recipes")
+    expect(status.success?).to be(true), "stderr: #{stderr}"
+    expect(stdout).to include("older_than_days:")
+    expect(stdout).to include("plugin_cache_dir:")
+  end
+
   # `init` and the bare `plan` / `apply` forms are the first-run path, so they
   # get exercised end-to-end against a throwaway XDG_CONFIG_HOME.
   describe "first-run flow" do

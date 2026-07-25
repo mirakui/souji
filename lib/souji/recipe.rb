@@ -13,6 +13,9 @@ module Souji
   # - `required_external_commands "<cmd>", ...` (optional) — executables the
   #   recipe shells out to; probed at plan time per FR-020.
   # - `description "..."` (optional) — used by `souji help recipes`.
+  # - `param :name, "what it does"` (optional, repeatable) — the keyword
+  #   arguments `#enumerate` accepts; validated against scenarios at plan
+  #   time before any scanning starts.
   #
   # And implement:
   # - `#enumerate(target_roots, params) -> Array<PlanItem>`
@@ -47,6 +50,29 @@ module Souji
         return @description if text.nil?
 
         @description = text
+      end
+
+      # Declare a keyword parameter this recipe's `#enumerate` understands.
+      # The declarations are the contract between a scenario and a recipe:
+      # `souji plan` rejects undeclared params before scanning (so a typo
+      # like `older_than_day:` is an error rather than a silently ignored
+      # key), and `souji recipes` lists them for discovery.
+      def param(name, description)
+        unless description.is_a?(String) && !description.strip.empty?
+          raise ArgumentError, "param #{name.inspect} needs a non-empty description"
+        end
+
+        params[name.to_sym] = description
+      end
+
+      # Declared params, in declaration order. Ordering is part of the
+      # contract: `souji recipes` output must be stable across runs.
+      def params
+        @params ||= {}
+      end
+
+      def param_names
+        params.keys
       end
 
       def registry

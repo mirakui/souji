@@ -59,6 +59,26 @@ RSpec.describe Souji::Recipes::GitWorktree, :git do
       end
     end
 
+    # A repo inside the targets may register worktrees anywhere on disk.
+    # Those registrations are out of scope for this scenario, so the recipe
+    # must not propose them (Souji::Plan's containment check is the last
+    # safety net, not the mechanism users are expected to hit).
+    it "omits prunable worktrees registered outside the target roots" do
+      with_tmp_dir do |dir|
+        scope = File.join(dir, "scope")
+        repo = build_git_repo(File.join(scope, "repo"))
+        inside = add_worktree(repo: repo, wt_path: File.join(scope, "wt-in"), branch_name: "feat-in")
+        outside = add_worktree(repo: repo, wt_path: File.join(dir, "outside", "wt-out"), branch_name: "feat-out")
+        make_worktree_prunable!(inside)
+        make_worktree_prunable!(outside)
+
+        paths = recipe.enumerate([scope], {}).map(&:path)
+
+        expect(paths).to include(inside)
+        expect(paths).not_to include(outside)
+      end
+    end
+
     it "does not modify the filesystem under target_roots" do
       with_tmp_dir do |dir|
         repo = build_git_repo(File.join(dir, "repo"))

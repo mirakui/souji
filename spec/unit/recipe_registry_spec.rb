@@ -108,6 +108,55 @@ RSpec.describe Souji::Recipe do
     end
   end
 
+  # Declared parameters are the single source of truth for what a scenario
+  # may pass a recipe: `souji plan` validates scenario params against them
+  # before scanning, and the `souji init` template documents them.
+  describe ".param" do
+    it "records declared params in declaration order with their descriptions" do
+      klass = Class.new(described_class) do
+        recipe_name "has-params"
+        param :older_than_days, "Only images at least this old"
+        param :plugin_cache_dir, "Where the cache lives"
+      end
+      expect(klass.params).to eq(
+        older_than_days: "Only images at least this old",
+        plugin_cache_dir: "Where the cache lives"
+      )
+      expect(klass.param_names).to eq(%i[older_than_days plugin_cache_dir])
+    end
+
+    it "defaults to no params" do
+      klass = Class.new(described_class) { recipe_name "no-params" }
+      expect(klass.params).to eq({})
+      expect(klass.param_names).to eq([])
+    end
+
+    it "rejects a param declared without a description" do
+      expect do
+        Class.new(described_class) do
+          recipe_name "undocumented"
+          param :mystery, ""
+        end
+      end.to raise_error(ArgumentError, /description/)
+    end
+  end
+
+  describe "built-in recipes' declared params" do
+    around do |example|
+      # This group needs the real registry, not the empty one the outer
+      # `around` installs.
+      described_class.reset_registry!
+      Souji::Recipes.load_builtins!
+      example.run
+    end
+
+    it "declares every param its #enumerate actually reads" do
+      expect(described_class.fetch("git-worktree").param_names).to eq([])
+      expect(described_class.fetch("docker-image").param_names).to eq([:older_than_days])
+      expect(described_class.fetch("terraform-provider").param_names).to eq([:plugin_cache_dir])
+    end
+  end
+
   describe ".available?" do
     it "returns true for a command that exists" do
       expect(described_class.available?("sh")).to be true

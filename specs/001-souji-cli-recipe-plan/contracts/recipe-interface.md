@@ -20,6 +20,7 @@ module Souji
     def self.recipe_name(name = nil); end       # required, sets identifier
     def self.required_external_commands(*cmds); end  # optional, default []
     def self.description(text = nil); end       # optional, used by `souji help recipes`
+    def self.param(name, description); end      # optional, repeatable; declares a params key
 
     # Progress reporter, injected by the framework before #enumerate.
     attr_accessor :progress                     # Souji::Progress (never nil)
@@ -57,6 +58,26 @@ required_external_commands "git"
 ### `description(text)`
 
 **Optional**. One-line description shown in `souji help recipes`.
+
+### `param(name, description)`
+
+**Optional**, repeatable. Declares one keyword argument `#enumerate` reads from
+its `params` hash. The description is required and non-empty: these
+declarations are the only published documentation of a recipe's options, and
+they are what `souji recipes` lists and what the `souji init` template shows.
+
+```ruby
+param :older_than_days, "Only propose images created at least this many days ago"
+```
+
+Declarations are also enforced: a scenario passing a key no recipe declared is
+rejected with exit code 65 **before any scanning starts**, so a typo like
+`older_than_day:` fails loudly instead of being silently dropped. A recipe that
+declares no params accepts none.
+
+`.params` returns `{name => description}` in declaration order (ordering is
+part of the contract — `souji recipes` output must be stable across runs);
+`.param_names` returns just the keys.
 
 ## Progress reporting
 

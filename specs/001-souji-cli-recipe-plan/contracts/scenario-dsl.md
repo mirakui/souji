@@ -54,7 +54,9 @@ Records a recipe invocation. Will be executed during `souji plan`.
   default target set for just this invocation. Must be a subset of the
   scenario-level `target` declarations (no scope escalation; see FR-019).
 - `**params` (optional) — recipe-specific keyword arguments. Each recipe
-  documents its parameters.
+  declares the keys it accepts via `param` (see `recipe-interface.md`); passing
+  an undeclared key is an error, not a silently ignored hash entry. Run
+  `souji recipes` for the live list of each recipe's options.
 
 ```ruby
 recipe "git-worktree"
@@ -78,6 +80,12 @@ end
 
 Equivalent to passing `targets:` to each `recipe` call inside the block.
 
+`with_targets` narrows an existing scope, it does not create one: at least one
+`target` must already be declared. A scenario that reaches for `with_targets`
+(or `recipe(targets:)`) with nothing declared is rejected at evaluation time
+rather than allowed to enumerate against a scope the plan would then have to
+throw away wholesale.
+
 ## Evaluation semantics
 
 - The scenario file is read into a string and evaluated with
@@ -86,6 +94,11 @@ Equivalent to passing `targets:` to each `recipe` call inside the block.
   backtrace.
 - The context is throwaway: it is constructed per `souji plan` invocation and
   discarded after the plan is built.
+- The scenario is validated in full before any recipe enumerates: every recipe
+  name is resolved against the registry and every param checked against the
+  recipes' declarations, and all offenders are reported in one error. Walking a
+  home directory takes seconds, so a scenario must never scan for that long
+  only to die on a typo in its last line.
 - Recipe invocations are executed in the order they are written in the file.
   This ordering is preserved in the generated plan's `items` (along with
   per-recipe internal ordering) so two `plan` runs against the same scenario +
@@ -99,6 +112,13 @@ Equivalent to passing `targets:` to each `recipe` call inside the block.
   message naming the unknown recipe and the available recipe names.
 - Targets that escape the scenario-level target set → exit code 65, stderr
   message identifying the violating `recipe` call.
+- `with_targets` or `recipe(targets:)` used with no `target` declared → exit
+  code 65, stderr message naming the `target` declaration to add.
+- A param a recipe does not declare → exit code 65, stderr message naming the
+  offending key and the keys that recipe does accept.
+
+Every error above is raised before any recipe enumerates, so a rejected
+scenario costs no filesystem traversal.
 
 No exception classes are part of the DSL contract — users do not catch them in
 scenario code.

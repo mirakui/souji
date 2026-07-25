@@ -48,13 +48,16 @@ Pass `--quiet` to suppress it.
 
 ## Built-in recipes (v1)
 
-| Recipe | Resource | External command |
-|---|---|---|
-| `git-worktree` | Abandoned git worktrees (HEAD-missing, marked prunable by git) | `git` |
-| `terraform-provider` | Terraform provider cache entries unreferenced by any `.terraform.lock.hcl` under target_roots | (none — pure filesystem) |
-| `docker-image` | Dangling docker images | `docker` |
+| Recipe | Resource | Options | External command |
+|---|---|---|---|
+| `git-worktree` | Abandoned git worktrees (HEAD-missing, marked prunable by git) | (none) | `git` |
+| `terraform-provider` | Terraform provider cache entries unreferenced by any `.terraform.lock.hcl` under target_roots | `plugin_cache_dir:` | (none — pure filesystem) |
+| `docker-image` | Dangling docker images | `older_than_days:` | `docker` |
 
-Run `souji recipes` to see the live list with descriptions.
+Run `souji recipes` to see the live list with descriptions and options. Options
+are keyword arguments on the `recipe` call, and a recipe accepts only the ones
+it declares — `souji plan` rejects an unknown option (and an unknown recipe
+name) before it scans anything.
 
 ## XDG layout
 

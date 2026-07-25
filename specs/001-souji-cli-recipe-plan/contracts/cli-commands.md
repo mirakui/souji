@@ -255,8 +255,9 @@ author a Souji scenario that targets `~/.local/state/souji/log/`.
 ## Subcommand: `souji help [<topic>]`
 
 Standard Thor help. `souji help` lists subcommands; `souji help plan` /
-`souji help apply` show per-command usage. `souji help recipes` prints the
-recipe registry (recipe name + one-line description).
+`souji help apply` show per-command usage. `souji recipes` prints the recipe
+registry — recipe name + one-line description, with each recipe's declared
+options (`<param>: <description>`) indented beneath it.
 
 **Exit codes**: 0.
 

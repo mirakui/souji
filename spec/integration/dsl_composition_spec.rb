@@ -70,6 +70,8 @@ RSpec.describe "DSL composition (US3 integration)" do
       Souji::Recipe.reset_registry!
       capture_recipe = Class.new(Souji::Recipe) do
         recipe_name "capture-params"
+        param :older_than_days, "Age cutoff in days"
+        param :retain, "How many to keep"
         define_method(:enumerate) do |_target_roots, params|
           captured = params
           []

@@ -42,7 +42,8 @@ module Souji
         @stderr.puts("[souji] scenario error: #{e.message}")
         ExitCodes::SCENARIO_ERROR
       rescue UnknownRecipeError => e
-        @stderr.puts("[souji] unknown recipe: #{e.message}")
+        # The message already opens with "unknown recipe ...", so no prefix.
+        @stderr.puts("[souji] #{e.message}")
         ExitCodes::SCENARIO_ERROR
       rescue StandardError => e
         @stderr.puts("[souji] unexpected error: #{e.class}: #{e.message}")

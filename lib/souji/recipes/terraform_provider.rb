@@ -17,6 +17,8 @@ module Souji
     class TerraformProvider < Souji::Recipe
       recipe_name "terraform-provider"
       description "Remove cached terraform provider versions unreferenced by any .terraform.lock.hcl under scope"
+      param :plugin_cache_dir,
+            "Provider cache to prune (default: $TF_PLUGIN_CACHE_DIR, else ~/.terraform.d/plugin-cache)"
 
       LOCK_PROVIDER_HEADER = /\Aprovider\s+"([^"]+)"\s*\{\s*\z/
       LOCK_VERSION = /\A\s*version\s*=\s*"([^"]+)"/

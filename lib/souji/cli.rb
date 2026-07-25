@@ -92,7 +92,7 @@ module Souji
 
     map "--version" => :version
 
-    desc "recipes", "List registered recipes with their descriptions"
+    desc "recipes", "List registered recipes with their descriptions and options"
     def recipes
       Souji::Recipes.load_builtins!
       registry = Souji::Recipe.registry.sort.to_h
@@ -100,6 +100,7 @@ module Souji
       registry.each do |name, klass|
         desc = klass.description || ""
         $stdout.puts(format("%-#{width}s  %s", name, desc))
+        klass.params.each { |param, param_desc| $stdout.puts("#{" " * (width + 2)}  #{param}: #{param_desc}") }
       end
     end
   end

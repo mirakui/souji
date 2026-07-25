@@ -101,6 +101,65 @@ RSpec.describe Souji::Scenario do
       end
     end
 
+    # Enumeration is the expensive part (whole-tree walks), so nothing about
+    # the scenario may be discovered to be wrong once it has started.
+    it "validates the whole scenario before enumerating anything" do
+      with_tmp_dir do |dir|
+        path = write_scenario(dir, "late-typo", <<~RUBY)
+          target "#{dir}"
+          recipe "fake-recipe"
+          recipe "no-such-recipe"
+        RUBY
+        scenario = described_class.from_file(path)
+        io = StringIO.new
+        expect { scenario.run_plan(progress: Souji::Progress.new(io: io)) }
+          .to raise_error(Souji::UnknownRecipeError, /no-such-recipe/)
+        expect(io.string).not_to include("fake-recipe")
+      end
+    end
+
+    it "names every unknown recipe in one error rather than only the first" do
+      with_tmp_dir do |dir|
+        path = write_scenario(dir, "two-typos", <<~RUBY)
+          target "#{dir}"
+          recipe "typo-one"
+          recipe "typo-two"
+        RUBY
+        scenario = described_class.from_file(path)
+        expect { scenario.run_plan }
+          .to raise_error(Souji::UnknownRecipeError, /typo-one.*typo-two/m)
+      end
+    end
+
+    it "raises Souji::ScenarioError for a param the recipe does not declare" do
+      with_tmp_dir do |dir|
+        path = write_scenario(dir, "bad-param", <<~RUBY)
+          target "#{dir}"
+          recipe "fake-recipe", older_than_day: 30
+        RUBY
+        scenario = described_class.from_file(path)
+        expect { scenario.run_plan }
+          .to raise_error(Souji::ScenarioError, /older_than_day/)
+      end
+    end
+
+    it "accepts a param the recipe declares" do
+      Souji::Recipe.reset_registry!
+      Class.new(Souji::Recipe) do
+        recipe_name "takes-a-param"
+        param :depth, "How deep to look"
+        def enumerate(_targets, _params) = []
+      end
+
+      with_tmp_dir do |dir|
+        path = write_scenario(dir, "good-param", <<~RUBY)
+          target "#{dir}"
+          recipe "takes-a-param", depth: 3
+        RUBY
+        expect { described_class.from_file(path).run_plan }.not_to raise_error
+      end
+    end
+
     it "reports the scenario, each recipe and each scanned target through the progress reporter" do
       Souji::Recipe.reset_registry!
       Class.new(Souji::Recipe) do

@@ -42,7 +42,7 @@ module Souji
 
       def with_targets(*paths)
         scoped = paths.map { |p| expand_path(p) }
-        scoped.each { |p| ensure_within_scope!(p) }
+        scoped.each { |p| ensure_within_scope!(p, construct: "with_targets") }
         @scope_stack.push(scoped)
         yield
       ensure
@@ -59,7 +59,7 @@ module Souji
         return current_scope if explicit.nil?
 
         candidates = Array(explicit).map { |p| expand_path(p) }
-        candidates.each { |c| ensure_within_scope!(c) }
+        candidates.each { |c| ensure_within_scope!(c, construct: "recipe targets:") }
         candidates
       end
 
@@ -69,9 +69,20 @@ module Souji
         @target_roots.dup
       end
 
-      def ensure_within_scope!(path)
+      # Both `with_targets` and `recipe(targets:)` narrow the scenario's
+      # declared target set, so with nothing declared there is nothing to
+      # narrow: refuse right here rather than letting the scenario enumerate
+      # against a scope that Souji::Plan will then reject wholesale as "not
+      # under any target_root ()" after a full filesystem scan.
+      def ensure_within_scope!(path, construct:)
+        if @target_roots.empty?
+          raise ScenarioError,
+                "#{construct} #{path.inspect} requires a `target` declaration; " \
+                "add `target #{path.inspect}`"
+        end
+
         roots = @scope_stack.empty? ? @target_roots : @scope_stack.last
-        return if roots.empty? # nothing declared yet — scope check happens later
+        return if roots.empty?
         return if within_any?(path, roots)
 
         raise ScenarioError,

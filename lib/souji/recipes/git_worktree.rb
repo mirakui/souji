@@ -25,11 +25,13 @@ module Souji
       description "Remove abandoned git worktrees (HEAD-missing or marked prunable by git)"
 
       def enumerate(target_roots, _params)
+        roots = target_roots.map { |root| File.expand_path(root) }
         target_roots
           .flat_map { |root| find_git_repos(root) }
           .uniq
           .sort
           .flat_map { |repo| enumerate_repo(repo) }
+          .select { |item| within_any?(item.path, roots) }
       end
 
       def verify(plan_item)
@@ -54,6 +56,16 @@ module Souji
       end
 
       private
+
+      # A repo inside the targets may register worktrees anywhere on disk,
+      # and `git worktree list` reports them all. Only the ones that live
+      # under a declared target are this scenario's business.
+      def within_any?(path, roots)
+        normalized = File.expand_path(path)
+        roots.any? do |root|
+          normalized == root || normalized.start_with?("#{root}/")
+        end
+      end
 
       # Find every directory under `root` that has a .git/worktrees/
       # subdirectory (i.e., a git repo that has registered worktrees).

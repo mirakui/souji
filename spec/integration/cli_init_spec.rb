@@ -58,6 +58,30 @@ RSpec.describe "souji init (integration)" do
       expect(body).to include("souji apply")
     end
 
+    # The template is the only place most users will ever read about recipe
+    # options, so it must not drift from what the recipes actually declare.
+    it "documents every param declared by every built-in recipe" do
+      Souji::Recipes.load_builtins!
+      command.call
+      body = File.read(scenario_path)
+
+      Souji::Recipe.registry.each_value do |klass|
+        klass.param_names.each do |param|
+          expect(body).to include("#{param}:"),
+                          "expected the init template to show #{klass.recipe_name}'s #{param}: option"
+        end
+      end
+    end
+
+    it "shows each recipe's options next to a runnable example line" do
+      command.call
+      body = File.read(scenario_path)
+
+      expect(body).to include('recipe "docker-image", older_than_days: 30')
+      expect(body).to include("plugin_cache_dir:")
+      expect(body).to include("souji recipes")
+    end
+
     it "produces a template that souji plan can evaluate, yielding an empty plan" do
       command.call
 
