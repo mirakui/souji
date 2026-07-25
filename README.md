@@ -106,7 +106,7 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
 
 ```bash
 bundle install
-bundle exec rspec           # 127 examples by default (docker tag-gated)
+bundle exec rspec           # 169 examples by default (docker tag-gated)
 bundle exec rubocop
 WITH_DOCKER=1 bundle exec rspec   # include docker integration tests
 gem build souji.gemspec
