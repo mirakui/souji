@@ -11,17 +11,23 @@ re-verification, and an audit log).
 ```bash
 gem install souji
 
-mkdir -p ~/.config/souji/scenario
-cat > ~/.config/souji/scenario/weekly.rb <<'RUBY'
-target File.expand_path("~/work")
-recipe "git-worktree"
-recipe "docker-image"
-RUBY
+souji init                                 # writes ~/.config/souji/scenario/default.rb
+$EDITOR ~/.config/souji/scenario/default.rb # uncomment the targets and recipes you want
 
+souji plan                       # writes ~/.cache/souji/default.soujiplan
+$EDITOR ~/.cache/souji/default.soujiplan   # review what would be deleted
+souji apply --dry-run            # preview without prompting
+souji apply                      # prompt for confirmation, then delete
+```
+
+`souji init` generates a fully commented-out template, so a freshly
+initialized scenario proposes nothing until you edit it. Additional scenarios
+are just more files in the same directory, addressed by name:
+
+```bash
+$EDITOR ~/.config/souji/scenario/weekly.rb
 souji plan weekly                # writes ~/.cache/souji/weekly.soujiplan
-$EDITOR ~/.cache/souji/weekly.soujiplan   # review what would be deleted
-souji apply weekly --dry-run     # preview without prompting
-souji apply weekly               # prompt for confirmation, then delete
+souji apply weekly
 ```
 
 See [`specs/001-souji-cli-recipe-plan/quickstart.md`](specs/001-souji-cli-recipe-plan/quickstart.md)
@@ -41,7 +47,7 @@ Run `souji recipes` to see the live list with descriptions.
 
 | Default location | Purpose | Auto-created? |
 |---|---|---|
-| `$XDG_CONFIG_HOME/souji/scenario/<name>.rb` | User-authored scenarios | no (user provisions) |
+| `$XDG_CONFIG_HOME/souji/scenario/<name>.rb` | User-authored scenarios | only by `souji init` |
 | `$XDG_CACHE_HOME/souji/<name>.soujiplan` | Generated plan files | yes |
 | `$XDG_STATE_HOME/souji/log/<UTC-ts>-<name>.jsonl` | Apply action logs | yes |
 
@@ -50,6 +56,9 @@ Defaults fall back to `~/.config`, `~/.cache`, `~/.local/state`.
 Bare-name resolution: `souji plan weekly` resolves the argument under the XDG
 config dir; `souji plan ./local.rb` (or any path containing `/`, starting with
 `~`, or ending with `.rb`) is taken as a literal filesystem path.
+
+Omitting the argument means `default`: `souji plan` is `souji plan default` and
+`souji apply` is `souji apply default`.
 
 ## Safety model
 

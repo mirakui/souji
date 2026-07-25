@@ -12,7 +12,7 @@ breaking changes to users.
 souji <subcommand> [args...] [options...]
 ```
 
-Subcommands: `plan`, `apply`, `help`, `version`.
+Subcommands: `init`, `plan`, `apply`, `help`, `version`.
 
 ## Exit codes
 
@@ -46,21 +46,62 @@ follow the same resolution rule (spec FR-007a):
    - Plans: `$XDG_CACHE_HOME/souji/<name>.soujiplan`, default
      `$XDG_CACHE_HOME` to `~/.cache`.
 
+3. **Omitted** — the bare name `default`, i.e. `souji plan` is equivalent to
+   `souji plan default` and `souji apply` to `souji apply default`. `souji init`
+   generates that scenario.
+
 Missing file ⇒ usage error (exit code 2) with stderr listing the path that
 was tried.
+
+## Subcommand: `souji init`
+
+**Synopsis**:
+
+```text
+souji init [--force]
+```
+
+**Arguments**: none.
+
+**Options**:
+
+- `--force` — overwrite an existing `default.rb`. Without it, an existing file
+  is left untouched.
+
+**Behavior**:
+
+1. Create `$XDG_CONFIG_HOME/souji/scenario/` if missing. This is the ONLY
+   command allowed to create the scenario directory (cf. FR-007b, which keeps
+   `plan` / `apply` from auto-creating it).
+2. If `default.rb` already exists and `--force` was not passed, print
+   `<path> already exists (pass --force to overwrite)` to stdout and exit 0
+   (the command is idempotent — re-running it never clobbers user edits).
+3. Otherwise write the scenario template to `default.rb` and print
+   `created <path>` (or `overwrote <path>` under `--force`) to stdout, plus a
+   next-step hint on stderr.
+
+**Template contract**: every line of the generated template is a comment, so a
+freshly initialized scenario declares no targets and no recipes — `souji plan`
+immediately after `souji init` produces an empty plan and can never propose
+deleting something the user did not opt into. The template is ASCII-only:
+scenario files are read and `instance_eval`'d, so a non-ASCII byte would make
+the scenario unloadable where the default external encoding is US-ASCII.
+
+**Exit codes used**: 0, 1 (directory or file could not be written).
 
 ## Subcommand: `souji plan`
 
 **Synopsis**:
 
 ```text
-souji plan <scenario> [-o <plan-file>] [--target-root <path>]... [--log-file <path>]
+souji plan [<scenario>] [-o <plan-file>] [--target-root <path>]... [--log-file <path>]
 ```
 
 **Arguments**:
 
-- `<scenario>` (required, positional) — name or filesystem path to a Ruby DSL
-  scenario file. See "Name resolution" above. Examples:
+- `<scenario>` (optional, positional) — name or filesystem path to a Ruby DSL
+  scenario file. Defaults to `default`. See "Name resolution" above. Examples:
+  - `souji plan` → `~/.config/souji/scenario/default.rb`
   - `souji plan weekly` → `~/.config/souji/scenario/weekly.rb`
   - `souji plan ./weekly.rb` → CWD-relative path
   - `souji plan ~/cleanups/weekly.rb` → absolute path
@@ -70,7 +111,7 @@ souji plan <scenario> [-o <plan-file>] [--target-root <path>]... [--log-file <pa
 - `-o, --output <plan-file>` — destination for the YAML plan file. Accepts the
   same name/path resolution: a bare name is interpreted as
   `$XDG_CACHE_HOME/souji/<name>.soujiplan`; a path-shaped value is used as-is.
-  **Default**: when `<scenario>` was bare (e.g. `weekly`), defaults to
+  **Default**: when `<scenario>` was bare (e.g. `weekly`) or omitted, defaults to
   `$XDG_CACHE_HOME/souji/<name>.soujiplan`; when `<scenario>` was a path,
   defaults to `$XDG_CACHE_HOME/souji/<scenario-basename-without-ext>.soujiplan`
   (per spec FR-007b). Souji creates `$XDG_CACHE_HOME/souji/` on demand if
@@ -106,13 +147,14 @@ target roots (FR-008, SC-003).
 **Synopsis**:
 
 ```text
-souji apply <plan-file> [--yes] [--dry-run] [--log-file <path> | --no-log-file]
+souji apply [<plan-file>] [--yes] [--dry-run] [--log-file <path> | --no-log-file]
 ```
 
 **Arguments**:
 
-- `<plan-file>` (required, positional) — name or path of a previously generated
-  plan file. See "Name resolution" above. Examples:
+- `<plan-file>` (optional, positional) — name or path of a previously generated
+  plan file. Defaults to `default`. See "Name resolution" above. Examples:
+  - `souji apply` → `~/.cache/souji/default.soujiplan`
   - `souji apply weekly` → `~/.cache/souji/weekly.soujiplan`
   - `souji apply ./weekly.soujiplan` → CWD-relative path
   - `souji apply /tmp/test.soujiplan` → absolute path
@@ -199,10 +241,18 @@ anything a human reads while watching the command run goes on stderr.
 ## Examples (informational)
 
 ```bash
+# --- First-run flow (default scenario) ---
+
+souji init                                   # ~/.config/souji/scenario/default.rb
+$EDITOR ~/.config/souji/scenario/default.rb  # uncomment targets + recipes
+souji plan                                   # ~/.cache/souji/default.soujiplan
+souji apply --dry-run
+souji apply
+
+
 # --- Idiomatic flow with XDG conventions ---
 
 # Put your scenario at ~/.config/souji/scenario/weekly.rb (one-time setup)
-mkdir -p ~/.config/souji/scenario
 $EDITOR ~/.config/souji/scenario/weekly.rb
 
 # Generate plan: reads scenario by name, writes ~/.cache/souji/weekly.soujiplan

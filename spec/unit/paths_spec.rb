@@ -42,6 +42,46 @@ RSpec.describe Souji::Paths do
     end
   end
 
+  describe "DEFAULT_NAME fallback" do
+    it "resolves a nil scenario argument to the 'default' scenario" do
+      scenario = File.join(home, ".config", "souji", "scenario", "default.rb")
+      FileUtils.mkdir_p(File.dirname(scenario))
+      File.write(scenario, "")
+
+      expect(described_class.resolve_scenario(nil)).to eq(scenario)
+    end
+
+    it "names the missing 'default' scenario when nil is passed and nothing is installed" do
+      expect { described_class.resolve_scenario(nil) }
+        .to raise_error(Souji::ScenarioNotFoundError) do |err|
+          expect(err.message).to include(File.join(home, ".config", "souji", "scenario", "default.rb"))
+        end
+    end
+
+    it "resolves a nil plan argument to the 'default' plan" do
+      plan = File.join(home, ".cache", "souji", "default.soujiplan")
+      FileUtils.mkdir_p(File.dirname(plan))
+      File.write(plan, "")
+
+      expect(described_class.resolve_plan(nil)).to eq(plan)
+    end
+
+    it "computes the default plan output for a nil scenario argument" do
+      expect(described_class.default_plan_output_for(nil))
+        .to eq(File.join(home, ".cache", "souji", "default.soujiplan"))
+    end
+
+    it "treats an empty string like a missing argument" do
+      expect(described_class.default_plan_output_for(""))
+        .to eq(File.join(home, ".cache", "souji", "default.soujiplan"))
+    end
+
+    it "exposes the default scenario path helper" do
+      expect(described_class.default_scenario_path)
+        .to eq(File.join(home, ".config", "souji", "scenario", "default.rb"))
+    end
+  end
+
   describe "default XDG directories" do
     it "uses ~/.config when XDG_CONFIG_HOME is unset" do
       expect(described_class.config_home).to eq(File.join(home, ".config"))

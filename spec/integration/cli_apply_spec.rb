@@ -123,6 +123,32 @@ RSpec.describe "souji apply (integration)" do
     end
   end
 
+  describe "default plan" do
+    it "falls back to the 'default' plan when no argument is given", :git do
+      with_tmp_dir do |work|
+        repo = build_git_repo(File.join(work, "repo"))
+        prunable = add_worktree(repo: repo, wt_path: File.join(work, "wt-1"), branch_name: "feat-1")
+        make_worktree_prunable!(prunable)
+
+        install_scenario("default", <<~RUBY)
+          target "#{work}"
+          recipe "git-worktree"
+        RUBY
+        generate_plan("default")
+
+        expect(apply_command.call(yes: true)).to eq(0)
+        out = `git -C #{repo} worktree list --porcelain`
+        expect(out).not_to include(prunable)
+      end
+    end
+
+    it "exits 2 naming default.soujiplan when no argument is given and no default plan exists" do
+      expect(apply_command.call(yes: true)).to eq(2)
+      expected = File.join(ENV.fetch("XDG_CACHE_HOME"), "souji", "default.soujiplan")
+      expect(stderr.string).to include(expected)
+    end
+  end
+
   describe "missing plan" do
     it "exits 2 when the bare name does not resolve" do
       rc = apply_command.call("nope")

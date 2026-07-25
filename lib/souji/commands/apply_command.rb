@@ -11,7 +11,8 @@ require_relative "../recipes"
 
 module Souji
   module Commands
-    # Orchestrates `souji apply`. Reads a plan, scope-checks every item,
+    # Orchestrates `souji apply`. Reads a plan (the "default" plan when the
+    # argument is omitted), scope-checks every item,
     # bulk-confirms with the user, then runs Recipe#verify + Recipe#delete
     # per item, logging each outcome to stderr + (by default) a JSONL
     # file under $XDG_STATE_HOME/souji/log/.
@@ -25,7 +26,7 @@ module Souji
         @stdin = stdin
       end
 
-      def call(plan_arg, yes: false, dry_run: false, log_file: nil, no_log_file: false)
+      def call(plan_arg = nil, yes: false, dry_run: false, log_file: nil, no_log_file: false)
         return usage_error("--log-file and --no-log-file are mutually exclusive") if log_file && no_log_file
 
         Recipes.load_builtins!

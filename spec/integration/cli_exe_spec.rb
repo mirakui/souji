@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "open3"
+require "tmpdir"
 
 # Exercises the real exe/souji entrypoint as a subprocess so we catch
 # wiring bugs that the in-process command specs (which require "souji"
@@ -38,5 +39,53 @@ RSpec.describe "exe/souji (subprocess)" do
     expect(stdout).to include("git-worktree")
     expect(stdout).to include("docker-image")
     expect(stdout).to include("terraform-provider")
+  end
+
+  # `init` and the bare `plan` / `apply` forms are the first-run path, so they
+  # get exercised end-to-end against a throwaway XDG_CONFIG_HOME.
+  describe "first-run flow" do
+    around do |example|
+      Dir.mktmpdir("souji-exe-home-") do |home|
+        @home = home
+        example.run
+      end
+    end
+
+    def run_in_home(*)
+      env = clean_env.merge(
+        "HOME" => @home,
+        "XDG_CONFIG_HOME" => File.join(@home, ".config"),
+        "XDG_CACHE_HOME" => File.join(@home, ".cache"),
+        "XDG_STATE_HOME" => File.join(@home, ".local", "state")
+      )
+      Open3.capture3(env, RbConfig.ruby, exe, *)
+    end
+
+    it "generates the default scenario template with `souji init`" do
+      stdout, stderr, status = run_in_home("init")
+      expect(status.success?).to be(true), "stderr: #{stderr}"
+
+      scenario = File.join(@home, ".config", "souji", "scenario", "default.rb")
+      expect(File.file?(scenario)).to be true
+      expect(stdout).to include(scenario)
+    end
+
+    it "runs `souji plan` with no argument against the generated default scenario" do
+      _out, stderr, status = run_in_home("init")
+      expect(status.success?).to be(true), "stderr: #{stderr}"
+
+      stdout, stderr, status = run_in_home("plan")
+      expect(status.success?).to be(true), "stderr: #{stderr}"
+      expect(stdout).to include(File.join(@home, ".cache", "souji", "default.soujiplan"))
+    end
+
+    it "runs `souji apply` with no argument against the generated default plan" do
+      run_in_home("init")
+      run_in_home("plan")
+
+      stdout, stderr, status = run_in_home("apply", "--yes")
+      expect(status.success?).to be(true), "stderr: #{stderr}"
+      expect(stdout).to include(File.join(@home, ".cache", "souji", "default.soujiplan"))
+    end
   end
 end

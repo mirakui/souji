@@ -59,6 +59,32 @@ RSpec.describe "souji plan (integration)" do
     end
   end
 
+  describe "default scenario" do
+    it "falls back to the 'default' scenario when no argument is given", :git do
+      with_tmp_dir do |work|
+        repo = build_git_repo(File.join(work, "repo"))
+        prunable = add_worktree(repo: repo, wt_path: File.join(work, "wt-1"), branch_name: "feat-1")
+        make_worktree_prunable!(prunable)
+
+        install_scenario("default", <<~RUBY)
+          target "#{work}"
+          recipe "git-worktree"
+        RUBY
+
+        expect(command.call).to eq(0)
+
+        out = File.join(ENV.fetch("XDG_CACHE_HOME"), "souji", "default.soujiplan")
+        expect(Souji::Plan.load_yaml(out).items.map(&:path)).to include(prunable)
+      end
+    end
+
+    it "exits 2 naming default.rb when no argument is given and no default scenario exists" do
+      expect(command.call).to eq(2)
+      expected = File.join(ENV.fetch("XDG_CONFIG_HOME"), "souji", "scenario", "default.rb")
+      expect(stderr.string).to include(expected)
+    end
+  end
+
   describe "missing scenario" do
     it "exits 2 with stderr listing the path that was tried" do
       exit_code = command.call("nope")

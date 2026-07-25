@@ -11,8 +11,9 @@ module Souji
   module Commands
     # Orchestrates the `souji plan` subcommand.
     #
-    # Inputs: a scenario argument (bare name or path-shaped, per FR-007a)
-    # and an optional `-o` value (default per FR-007b).
+    # Inputs: a scenario argument (bare name or path-shaped, per FR-007a;
+    # omitted → the "default" scenario) and an optional `-o` value
+    # (default per FR-007b).
     #
     # Output: a YAML plan file on disk and a one-line summary on stdout.
     # No filesystem mutation under target_roots (FR-008).
@@ -23,7 +24,7 @@ module Souji
       end
 
       # Returns a Souji::ExitCodes::* value.
-      def call(scenario_arg, output: nil, target_roots: [], quiet: false)
+      def call(scenario_arg = nil, output: nil, target_roots: [], quiet: false)
         Recipes.load_builtins!
         scenario_path = resolve_scenario_path(scenario_arg)
         return ExitCodes::USAGE_ERROR unless scenario_path

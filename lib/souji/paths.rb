@@ -11,6 +11,9 @@ module Souji
   #   .rb / .soujiplan) → treated as filesystem paths.
   # - Bare names → looked up under $XDG_CONFIG_HOME/souji/scenario/ for
   #   scenarios and $XDG_CACHE_HOME/souji/ for plans.
+  # - A missing (nil / blank) argument → the bare name DEFAULT_NAME, so
+  #   `souji plan` behaves like `souji plan default` and `souji apply`
+  #   like `souji apply default`.
   # - Action log default destination is under $XDG_STATE_HOME/souji/log/.
   #
   # Cache and state directories are created on demand; the scenario
@@ -20,6 +23,16 @@ module Souji
 
     SCENARIO_EXT = ".rb"
     PLAN_EXT = ".soujiplan"
+
+    # Bare name used when the user omits the scenario / plan argument.
+    DEFAULT_NAME = "default"
+
+    # Normalize an omitted (nil or blank) scenario/plan argument to
+    # DEFAULT_NAME. Every resolver funnels its argument through here so
+    # the fallback is defined in exactly one place.
+    def with_default(arg)
+      arg.nil? || arg.to_s.strip.empty? ? DEFAULT_NAME : arg
+    end
 
     def path_shaped?(arg)
       return false if arg.nil? || arg.empty?
@@ -54,10 +67,18 @@ module Souji
       File.join(state_home, "souji", "log")
     end
 
+    # Path of the scenario `souji plan` reads when no argument is given —
+    # also the file `souji init` generates.
+    def default_scenario_path
+      File.join(scenario_dir, "#{DEFAULT_NAME}#{SCENARIO_EXT}")
+    end
+
     # Resolve the <scenario> argument of `souji plan` to an absolute
-    # filesystem path. Raises Souji::ScenarioNotFoundError if the resolved
-    # path does not exist on disk.
+    # filesystem path. A nil/blank argument resolves to the DEFAULT_NAME
+    # scenario. Raises Souji::ScenarioNotFoundError if the resolved path
+    # does not exist on disk.
     def resolve_scenario(arg)
+      arg = with_default(arg)
       path = path_shaped?(arg) ? File.expand_path(arg) : File.join(scenario_dir, "#{arg}#{SCENARIO_EXT}")
       raise ScenarioNotFoundError, "scenario file not found: #{path}" unless File.file?(path)
 
@@ -65,9 +86,11 @@ module Souji
     end
 
     # Resolve the <plan-file> argument of `souji apply` to an absolute
-    # filesystem path. Raises Souji::PlanNotFoundError if the resolved
-    # path does not exist on disk.
+    # filesystem path. A nil/blank argument resolves to the DEFAULT_NAME
+    # plan. Raises Souji::PlanNotFoundError if the resolved path does not
+    # exist on disk.
     def resolve_plan(arg)
+      arg = with_default(arg)
       path = path_shaped?(arg) ? File.expand_path(arg) : File.join(cache_dir, "#{arg}#{PLAN_EXT}")
       raise PlanNotFoundError, "plan file not found: #{path}" unless File.file?(path)
 
@@ -78,6 +101,7 @@ module Souji
     # user did not pass `-o`. Always lands under cache_dir; the basename is
     # derived from the scenario argument (FR-007b).
     def default_plan_output_for(scenario_arg)
+      scenario_arg = with_default(scenario_arg)
       basename =
         if path_shaped?(scenario_arg)
           File.basename(scenario_arg, SCENARIO_EXT)
