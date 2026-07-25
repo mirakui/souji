@@ -46,6 +46,7 @@ module Souji
       private
 
       def list_dangling
+        progress.scanning("docker images (dangling=true)")
         stdout, _stderr, status = Open3.capture3(
           "docker", "image", "ls", "--filter", "dangling=true",
           "--format", "{{json .}}", "--no-trunc"

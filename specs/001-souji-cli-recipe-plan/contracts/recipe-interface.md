@@ -21,6 +21,9 @@ module Souji
     def self.required_external_commands(*cmds); end  # optional, default []
     def self.description(text = nil); end       # optional, used by `souji help recipes`
 
+    # Progress reporter, injected by the framework before #enumerate.
+    attr_accessor :progress                     # Souji::Progress (never nil)
+
     # Lifecycle methods — concrete recipes override these.
     def enumerate(target_roots, params); end    # required
     def verify(plan_item); end                  # required
@@ -54,6 +57,26 @@ required_external_commands "git"
 ### `description(text)`
 
 **Optional**. One-line description shown in `souji help recipes`.
+
+## Progress reporting
+
+`Souji::Scenario#run_plan` assigns a `Souji::Progress` to every recipe instance
+before calling `#enumerate`; outside plan time (apply, direct instantiation in
+specs) `#progress` is a no-op reporter, so recipes may call it unconditionally.
+
+```ruby
+def enumerate(target_roots, _params)
+  target_roots.flat_map do |root|
+    find_git_repos(root).each { |repo| progress.scanning(repo) }
+  end
+end
+```
+
+`#scanning` SHOULD be called once per discovered scan target — a repository, a
+lockfile, an external query — and MUST NOT be called per traversed directory:
+progress is for a human watching the run, so its volume must stay proportional
+to what the recipe actually inspects. Progress goes to stderr and is suppressed
+by `souji plan --quiet`; recipes MUST NOT write to stdout or stderr directly.
 
 ## Instance methods (the lifecycle)
 
@@ -138,6 +161,7 @@ Souji::Scenario#run_plan
   ▼ for each RecipeInvocation:
     probe required_external_commands  ─┐
                                        ├─► skipped if missing (FR-020)
+    inject Recipe#progress=            │
     Recipe#enumerate                   ─┘
   │
   ▼ collect PlanItems

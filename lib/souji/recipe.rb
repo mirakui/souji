@@ -2,6 +2,7 @@
 
 require "shellwords"
 require_relative "errors"
+require_relative "progress"
 
 module Souji
   # Abstract base class for every cleanup recipe.
@@ -76,6 +77,15 @@ module Souji
 
         system("command -v #{Shellwords.escape(cmd)} >/dev/null 2>&1")
       end
+    end
+
+    # Progress reporter for `#enumerate`. `Souji::Scenario#run_plan` assigns
+    # the live reporter before enumerating; everywhere else (apply time,
+    # direct instantiation in specs) it stays a no-op reporter.
+    attr_writer :progress
+
+    def progress
+      @progress ||= Progress.null
     end
 
     def enumerate(_target_roots, _params)

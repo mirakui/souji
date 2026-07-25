@@ -101,7 +101,45 @@ RSpec.describe Souji::Scenario do
       end
     end
 
-    it "skips recipes whose required external command is missing and warns on stderr" do
+    it "reports the scenario, each recipe and each scanned target through the progress reporter" do
+      Souji::Recipe.reset_registry!
+      Class.new(Souji::Recipe) do
+        recipe_name "reports-progress"
+        def enumerate(target_roots, _params)
+          target_roots.each { |root| progress.scanning(root) }
+          []
+        end
+      end
+
+      with_tmp_dir do |dir|
+        path = write_scenario(dir, "reporting", <<~RUBY)
+          target "#{dir}"
+          recipe "reports-progress"
+        RUBY
+        io = StringIO.new
+        described_class.from_file(path).run_plan(progress: Souji::Progress.new(io: io))
+
+        expect(io.string).to eq(
+          "[souji] scenario #{path}\n" \
+          "[souji] targets: #{dir}\n" \
+          "[souji] [1/1] recipe reports-progress (targets: #{dir})\n" \
+          "[souji]   scanning #{dir}\n" \
+          "[souji] recipe reports-progress: 0 items\n"
+        )
+      end
+    end
+
+    it "stays silent when no progress reporter is supplied" do
+      with_tmp_dir do |dir|
+        path = write_scenario(dir, "silent", <<~RUBY)
+          target "#{dir}"
+          recipe "fake-recipe"
+        RUBY
+        expect { described_class.from_file(path).run_plan }.not_to output.to_stderr
+      end
+    end
+
+    it "skips recipes whose required external command is missing and warns through progress" do
       Souji::Recipe.reset_registry!
       Class.new(Souji::Recipe) do
         recipe_name "needs-missing-cmd"
@@ -127,16 +165,11 @@ RSpec.describe Souji::Scenario do
           recipe "always-works"
         RUBY
         scenario = described_class.from_file(path)
-        plan = nil
-        $stderr = StringIO.new
-        begin
-          plan = scenario.run_plan
-        ensure
-          captured_err = $stderr.string
-          $stderr = STDERR
-        end
-        expect(captured_err).to include("needs-missing-cmd")
-        expect(captured_err).to include("definitely-not-a-real-binary-12345")
+        io = StringIO.new
+        plan = scenario.run_plan(progress: Souji::Progress.new(io: io))
+
+        expect(io.string).to include("needs-missing-cmd")
+        expect(io.string).to include("definitely-not-a-real-binary-12345")
         expect(plan.items.size).to eq(1)
         expect(plan.items.first.recipe).to eq("always-works")
       end

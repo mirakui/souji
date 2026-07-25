@@ -6,6 +6,7 @@ require_relative "errors"
 require_relative "dsl"
 require_relative "plan"
 require_relative "plan_item"
+require_relative "progress"
 require_relative "recipe"
 require_relative "version"
 
@@ -18,6 +19,11 @@ module Souji
   # invocations; `#run_plan` then probes each recipe's required external
   # commands (FR-020), calls `Recipe#enumerate`, and aggregates the items
   # into a Souji::Plan.
+  #
+  # `#run_plan` narrates what it is doing through the `progress:` reporter
+  # (scenario, per-recipe start/finish, per-recipe skip warnings) and hands
+  # the same reporter to every recipe so recipes can report the targets they
+  # scan. The default reporter is silent; `souji plan` passes a live one.
   class Scenario
     attr_reader :path, :content_sha256, :target_roots, :invocations
 
@@ -53,20 +59,21 @@ module Souji
       @invocations = invocations
     end
 
-    def run_plan(now: Time.now, warn_io: $stderr)
+    def run_plan(now: Time.now, progress: Progress.null)
       items = []
-      @invocations.each do |invocation|
+      progress.scenario_start(@path, @target_roots)
+      @invocations.each_with_index do |invocation, index|
         recipe_class = Recipe.fetch(invocation.name)
         missing = missing_commands_for(recipe_class)
         if missing.any?
-          warn_io.puts(
-            "[souji] recipe #{invocation.name.inspect} skipped: " \
-            "command #{missing.first.inspect} not found"
-          )
+          progress.recipe_skipped(invocation.name, missing.first)
           next
         end
-        instance = recipe_class.new
-        items.concat(instance.enumerate(invocation.targets, invocation.params))
+        progress.recipe_start(invocation.name, index: index + 1, total: @invocations.size,
+                                               targets: invocation.targets)
+        found = enumerate_with(recipe_class, invocation, progress)
+        progress.recipe_finish(invocation.name, found.size)
+        items.concat(found)
       end
 
       Plan.new(
@@ -81,6 +88,12 @@ module Souji
     end
 
     private
+
+    def enumerate_with(recipe_class, invocation, progress)
+      instance = recipe_class.new
+      instance.progress = progress
+      instance.enumerate(invocation.targets, invocation.params)
+    end
 
     def missing_commands_for(recipe_class)
       recipe_class.required_external_commands.reject { |cmd| Recipe.available?(cmd) }

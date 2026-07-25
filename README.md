@@ -33,6 +33,19 @@ souji apply weekly
 See [`specs/001-souji-cli-recipe-plan/quickstart.md`](specs/001-souji-cli-recipe-plan/quickstart.md)
 for the full first-time walkthrough.
 
+While `souji plan` runs, it narrates the scenario, each recipe and each target
+being scanned on stderr, leaving stdout for the final summary line:
+
+```text
+[souji] scenario /home/u/.config/souji/scenario/weekly.rb
+[souji] targets: /home/u/work
+[souji] [1/2] recipe git-worktree (targets: /home/u/work)
+[souji]   scanning /home/u/work/some-repo
+[souji] recipe git-worktree: 1 item
+```
+
+Pass `--quiet` to suppress it.
+
 ## Built-in recipes (v1)
 
 | Recipe | Resource | External command |

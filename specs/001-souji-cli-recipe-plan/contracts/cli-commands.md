@@ -122,20 +122,42 @@ souji plan [<scenario>] [-o <plan-file>] [--target-root <path>]... [--log-file <
 - `--log-file <path>` — duplicate stderr diagnostics to this file. The plan
   phase does not emit an action log (no actions are taken), but recipe-level
   diagnostics (skipped recipes, scope warnings) go here too.
-- `--quiet` — suppress per-recipe progress on stderr. The plan file is still
-  written and the summary still goes to stdout.
+- `--quiet` — suppress progress on stderr (scenario, per-recipe start/finish,
+  scanned targets, skipped-recipe warnings). The plan file is still written and
+  the summary still goes to stdout.
 
 **Behavior**:
 
 1. Load and `instance_eval` the scenario file (R6).
-2. Resolve `target_roots` (scenario-declared ∪ `--target-root` flags).
+2. Resolve `target_roots` (scenario-declared ∪ `--target-root` flags), then
+   report the scenario and its target roots as progress.
 3. For each `RecipeInvocation` in order:
    - Probe `required_external_commands` (R8). If any missing, emit
      `[souji] recipe '<name>' skipped: command '<cmd>' not found` to stderr
      and skip (FR-020).
-   - Otherwise call `Recipe#enumerate(targets, params)` and collect candidates.
+   - Otherwise report the recipe as started, call
+     `Recipe#enumerate(targets, params)` — which reports each target it scans —
+     collect candidates, and report the recipe's item count.
 4. Build a `Plan` value object, write YAML to `-o`.
 5. Print a one-line summary to stdout: `wrote <plan-file>: <N> items across <M> recipes`.
+
+**Progress output** (stderr, suppressed by `--quiet`): every line is prefixed
+with `[souji] `. A run looks like this:
+
+```text
+[souji] scenario /home/u/.config/souji/scenario/weekly.rb
+[souji] targets: /home/u/work
+[souji] [1/2] recipe git-worktree (targets: /home/u/work)
+[souji]   scanning /home/u/work/some-repo
+[souji] recipe git-worktree: 1 item
+[souji] [2/2] recipe docker-image (targets: /home/u/work)
+[souji]   scanning docker images (dangling=true)
+[souji] recipe docker-image: 3 items
+```
+
+`scanning` lines are emitted per discovered scan target (a git repository, a
+`.terraform.lock.hcl`, an external query) — not per traversed directory, so the
+volume stays proportional to what the recipe actually inspects.
 
 **Side effects**: writes the plan file. No other filesystem mutation under the
 target roots (FR-008, SC-003).

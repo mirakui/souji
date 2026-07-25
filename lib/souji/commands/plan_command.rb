@@ -4,6 +4,7 @@ require_relative "../errors"
 require_relative "../exit_codes"
 require_relative "../paths"
 require_relative "../plan"
+require_relative "../progress"
 require_relative "../recipes"
 require_relative "../scenario"
 
@@ -16,6 +17,8 @@ module Souji
     # (default per FR-007b).
     #
     # Output: a YAML plan file on disk and a one-line summary on stdout.
+    # While the scenario runs, progress (scenario, recipes, scanned targets)
+    # is narrated on stderr unless `quiet:` is set.
     # No filesystem mutation under target_roots (FR-008).
     class PlanCommand
       def initialize(stdout: $stdout, stderr: $stderr)
@@ -32,7 +35,7 @@ module Souji
         scenario = Scenario.from_file(scenario_path)
         merge_extra_targets!(scenario, target_roots)
 
-        plan = scenario.run_plan(warn_io: quiet ? StringIO.new : @stderr)
+        plan = scenario.run_plan(progress: quiet ? Progress.null : Progress.new(io: @stderr))
         write_plan_and_summarize(plan, scenario_arg, output)
         ExitCodes::SUCCESS
       rescue ScenarioError => e
