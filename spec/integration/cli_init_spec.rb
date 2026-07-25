@@ -91,6 +91,75 @@ RSpec.describe "souji init (integration)" do
     end
   end
 
+  # FR-005a: --force is scoped to overwriting a user-edited regular file. A
+  # symlink (dotfiles management) or a stray directory is never clobbered.
+  describe "when the destination is not a regular file" do
+    before { FileUtils.mkdir_p(File.dirname(scenario_path)) }
+
+    it "refuses a directory with exit 2 and a diagnostic naming the path" do
+      FileUtils.mkdir_p(scenario_path)
+
+      expect(command.call).to eq(2)
+      expect(stderr.string).to include(scenario_path)
+      expect(stderr.string).to include("not a regular file")
+      expect(stderr.string).to include("directory")
+      expect(File.directory?(scenario_path)).to be true
+    end
+
+    it "refuses a directory even with --force" do
+      FileUtils.mkdir_p(scenario_path)
+
+      expect(command.call(force: true)).to eq(2)
+      expect(File.directory?(scenario_path)).to be true
+    end
+
+    it "refuses a symlink without following it, with and without --force" do
+      real = File.join(Dir.home, "dotfiles-default.rb")
+      File.write(real, "# managed by dotfiles\n")
+      File.symlink(real, scenario_path)
+
+      expect(command.call).to eq(2)
+      expect(command.call(force: true)).to eq(2)
+
+      expect(File.symlink?(scenario_path)).to be true
+      expect(File.read(real)).to eq("# managed by dotfiles\n")
+      expect(stderr.string).to include("symbolic link")
+    end
+  end
+
+  # FR-011: a half-written scenario file would make `souji plan` fail with a
+  # SyntaxError, so the destination is replaced via rename(2).
+  describe "atomic write" do
+    it "leaves no temporary files behind on success" do
+      command.call
+
+      leftovers = Dir.children(File.dirname(scenario_path)) - ["default.rb"]
+      expect(leftovers).to be_empty
+    end
+
+    it "keeps the previous content and removes the temp file when writing fails" do
+      FileUtils.mkdir_p(File.dirname(scenario_path))
+      File.write(scenario_path, "# previous content\n")
+
+      allow(File).to receive(:rename).and_raise(Errno::ENOSPC)
+
+      expect(command.call(force: true)).to eq(1)
+      expect(File.read(scenario_path)).to eq("# previous content\n")
+      expect(Dir.children(File.dirname(scenario_path))).to eq(["default.rb"])
+      expect(stderr.string).to include("[souji]")
+    end
+  end
+
+  # FR-010: init owns the scenario directory and nothing else.
+  describe "blast radius" do
+    it "does not create the cache or state directories" do
+      command.call
+
+      expect(Dir.exist?(File.join(ENV.fetch("XDG_CACHE_HOME"), "souji"))).to be false
+      expect(Dir.exist?(File.join(ENV.fetch("XDG_STATE_HOME"), "souji"))).to be false
+    end
+  end
+
   describe "when the scenario directory cannot be created" do
     it "reports the failure and exits 1" do
       blocker = File.join(ENV.fetch("XDG_CONFIG_HOME"), "souji")

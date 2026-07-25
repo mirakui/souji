@@ -45,4 +45,9 @@
   4. Non-regular destination → always rejected, `--force` does not override
      (FR-005a).
   5. Atomic write via temp file + `rename(2)` is required (FR-011, SC-006).
+- Three of those items were revised at implementation time; see `## Clarifications
+  > Session 2026-07-25 (implementation)` in `spec.md`. Items 1, 4 and 5 shipped as
+  specified. Item 2 was superseded (the template is entirely commented out, so no
+  recipe is active), item 3 was deferred along with the `<name>` argument itself,
+  and the "existing regular file" case became a no-op success instead of exit 2.
 - Items marked incomplete require spec updates before `/speckit-plan`.

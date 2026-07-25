@@ -4,9 +4,25 @@
 
 **Created**: 2026-05-22
 
-**Status**: Draft
+**Status**: Implemented (see "Implementation status" below)
 
 **Input**: User description: "`souji init` でサンプルの scenario を生成するようにしたい"
+
+## Implementation status
+
+Implemented on `main` together with the "bare `souji plan` / `souji apply` mean
+`default`" change. Code: `lib/souji/commands/init_command.rb`; tests:
+`spec/integration/cli_init_spec.rb` plus the `souji init` case in
+`spec/integration/cli_exe_spec.rb`; CLI contract:
+`specs/001-souji-cli-recipe-plan/contracts/cli-commands.md`.
+
+Three decisions were revised during implementation and are recorded in
+Clarifications §6-§8: the `<name>` argument was dropped (FR-003, FR-004, US3
+deferred), the generated template is entirely commented out rather than shipping
+an active `target` / `recipe` pair (FR-007), and an existing regular file is a
+no-op success rather than a usage error (FR-005, US2). The two safety
+requirements FR-005a (refuse non-regular destinations) and FR-011 (atomic write)
+are implemented as specified.
 
 ## Clarifications
 
@@ -17,6 +33,34 @@
 - Q: `souji init <name>` の `<name>` 引数に許容する文字種は？ → A: 厳格な ASCII allowlist 正規表現 `^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$` で検証する。先頭文字は英数字またはアンダースコア、以降は英数字 / アンダースコア / ピリオド / ハイフン、最大長 64 文字。これにより空文字・`.`・`..`・`/` を含む値・`~` 始まり・`.rb` 終わり・改行・空白・シェル特殊文字 (`*` `?` `$` 等)・Unicode 制御文字をまとめて拒否でき、bare name から filesystem basename への変換が予測可能になる。`Paths.path_shaped?` による既存の拒否条件はこの allowlist に包含される。日本語等のマルチバイト文字はサポート対象外（必要なら `<XDG_CONFIG_HOME>/souji/scenario/<日本語>.rb` をユーザーが直接編集すれば良く、CLI からは作らない）。
 - Q: destination に既存エントリが通常ファイル以外（symlink / ディレクトリ / 非通常ファイル）の場合の挙動は？ → A: `--force` の有無に関わらず常に拒否し usage error (exit 2)。`--force` の責務を「ユーザー編集された通常ファイルの上書き」に限定し、意図的に置かれた symlink（dotfiles 管理など）や誤って作られたディレクトリを破壊するリスクを排除する。stderr には「destination is not a regular file」相当の診断と該当パスを出す。Constitution Principle V（Safety by Default）と整合。
 - Q: ファイル書き込みのアトミック性は要件として保証するか？ → A: 必須化する。同一ディレクトリの一時ファイル（例: `default.rb.tmp.<pid>.<rand>`）にサンプル内容を書き出して `fsync` し、`File.rename` で destination にアトミックに置換する。POSIX `rename(2)` の同一 filesystem 内アトミック保証により、書き込み途中での SIGKILL / `ENOSPC` / 電源断でも destination は「書き込み前」か「完全な新内容」のいずれかに必ず保たれ、半端な scenario ファイルが残って `souji plan default` を SyntaxError で失敗させる事故を排除できる。エラー時は一時ファイルを片付けてから exit する。
+
+### Session 2026-07-25 (implementation)
+
+These three answers supersede the corresponding 2026-05-22 decisions. They were
+taken deliberately at implementation time; the numbered items above are kept for
+the record.
+
+- §6 — Q: Does `souji init` take a `<name>` argument? → A: No. `souji init` takes
+  no positional argument and always writes `default.rb`. Keeping the surface at
+  one file removes the need for the FR-004 allowlist, and additional scenarios are
+  just more files in the same directory that a user creates with an editor and
+  addresses by name (`souji plan weekly`). US3 and FR-004 are therefore deferred,
+  not rejected: adding an optional `<name>` later is a backward-compatible change.
+- §7 — Q: Does the generated template ship an active `target` / `recipe` pair? →
+  A: No. Every line of the template is a comment, so a freshly initialized
+  scenario declares no targets and no recipes. An active `target
+  File.expand_path("~/work")` would guess at a directory layout the user may not
+  have, and — more importantly — it would mean `souji init` hands a user a
+  scenario that already proposes deletions they never opted into. The first
+  `souji plan` therefore reports 0 items until the user uncomments something,
+  which is the intended Safety-by-Default reading of Principle V.
+- §8 — Q: What is the exit status when the destination is an existing regular
+  file and `--force` was not passed? → A: Success (exit 0), destination left
+  byte-identical, with the path and the `--force` hint on stdout. `souji init` is
+  then idempotent and safe to re-run from setup scripts; the file is still never
+  clobbered without `--force`, which is the actual safety property US2 is about.
+  Non-regular destinations remain a usage error (exit 2) per FR-005a — there the
+  non-zero status is the point, because the user has to intervene.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -29,10 +73,12 @@ at the conventional XDG location, so the very next command they type can be
 `souji plan <name>` and have it succeed.
 
 The developer runs `souji init`. Souji creates `$XDG_CONFIG_HOME/souji/scenario/`
-(including any missing parents) if it does not already exist, writes a sample
-scenario file there with a sensible default name, and prints the resolved path on
-stdout. The generated file is a syntactically valid scenario that loads cleanly
-under `souji plan` and explains its own contents through inline comments.
+(including any missing parents) if it does not already exist, writes the sample
+scenario file `default.rb` there, and prints the resolved path on stdout. The
+generated file is a syntactically valid scenario that loads cleanly under
+`souji plan` and explains its own contents through inline comments. Because every
+line is commented out (Clarifications §7), that first plan reports 0 items: the
+developer's next step is to uncomment the targets and recipes they want.
 
 **Why this priority**: This is the entire purpose of the `init` command. Without
 it, the first-time-user onboarding sequence documented in `quickstart.md` requires
@@ -44,8 +90,8 @@ manual setup into a single command and unblocks the entire quickstart flow.
 does not yet exist, running `souji init` produces a file under that directory and
 exits with success. The file can be passed to `souji plan` without further editing
 and `plan` parses it without raising a scenario error. Verifiable by running
-`souji init && souji plan <generated-name>` in sequence and confirming a plan file
-is produced.
+`souji init && souji plan` in sequence and confirming an (empty) plan file is
+produced.
 
 **Acceptance Scenarios**:
 
@@ -55,9 +101,9 @@ is produced.
    scenario file is written inside it, the command writes the absolute path of the
    generated file to stdout, and the command exits with success (exit code 0).
 2. **Given** the file produced by `souji init` in scenario 1, **When** the user
-   immediately runs `souji plan <generated-bare-name>`, **Then** Souji successfully
-   resolves the bare name, evaluates the scenario without raising any scenario
-   error, and produces a plan file at the default XDG cache location.
+   immediately runs `souji plan` (no argument), **Then** Souji resolves the
+   `default` bare name, evaluates the scenario without raising any scenario error,
+   and produces a plan file with zero items at the default XDG cache location.
 3. **Given** the file produced by `souji init`, **When** a human opens it in an
    editor, **Then** the file contains explanatory comments that name each DSL
    construct it uses (at minimum: `target` and `recipe`) so the reader can edit
@@ -73,10 +119,10 @@ exploring `souji --help`. They accidentally invoke `souji init` a second time.
 They want Souji to refuse to overwrite their customised file unless they explicitly
 ask for it, so a stray keystroke cannot destroy their cleanup policy.
 
-When the destination file already exists, `souji init` MUST refuse to overwrite it,
-exit with a non-zero status, and print a stderr diagnostic that names the existing
-path and tells the user how to force the overwrite. A `--force` flag MUST exist to
-overwrite intentionally.
+When the destination file already exists, `souji init` MUST refuse to overwrite it
+and print the existing path together with the `--force` hint. Per Clarifications
+§8 this is a no-op success (exit 0), so re-running `init` from a setup script is
+harmless. A `--force` flag MUST exist to overwrite intentionally.
 
 **Why this priority**: Destroying user-authored configuration on a re-invocation
 would be a Principle V (Safety by Default) violation in spirit, mirroring how
@@ -85,16 +131,16 @@ is only reachable after US1 has been used at least once, but every user who keep
 their scenario over time will eventually hit this path.
 
 **Independent Test**: Given a pre-existing scenario file at the destination,
-running `souji init` exits non-zero and leaves the existing file byte-identical;
-running `souji init --force` overwrites it. Verifiable by content-hash comparison
-of the destination file before and after each invocation.
+running `souji init` leaves the existing file byte-identical; running
+`souji init --force` overwrites it. Verifiable by content-hash comparison of the
+destination file before and after each invocation.
 
 **Acceptance Scenarios**:
 
 1. **Given** a file already exists at the destination scenario path, **When** the
-   user runs `souji init` without `--force`, **Then** the command exits with a
-   non-zero usage error status (exit code 2), stderr names the existing path and
-   suggests `--force`, and the existing file's content is unchanged.
+   user runs `souji init` without `--force`, **Then** the existing file's content
+   is unchanged, stdout names the existing path and suggests `--force`, and the
+   command exits 0 (Clarifications §8).
 2. **Given** a file already exists at the destination scenario path with custom
    user edits, **When** the user runs `souji init --force`, **Then** the existing
    file is overwritten with the sample content, the command exits with success,
@@ -102,7 +148,14 @@ of the destination file before and after each invocation.
 
 ---
 
-### User Story 3 - User chooses a custom name for the generated scenario (Priority: P3)
+### User Story 3 - User chooses a custom name for the generated scenario (Priority: P3, DEFERRED)
+
+> **Deferred, not implemented** (Clarifications §6). `souji init` takes no
+> positional argument; it always generates `default.rb`. Users who want a second
+> scenario author it with an editor and address it by name (`souji plan work`).
+> The story below is retained as the design for a future optional `<name>`
+> argument, which would be a backward-compatible addition.
+
 
 A developer wants more than one scenario over time (e.g., one for their personal
 laptop, one for their work laptop) and does not want every `souji init` invocation
@@ -148,7 +201,9 @@ foo`. Verifiable by listing the directory and by running the plan command.
   Per FR-011, Souji MUST remove the temporary file, leave the destination
   untouched (whether or not it already existed), exit with a non-zero status,
   and write a diagnostic naming the destination path on stderr.
-- **Bare name not in the allowlist**: The user passes an argument that fails the
+- **Bare name not in the allowlist** (DEFERRED with US3 / FR-004; `souji init`
+  declares no positional argument, so Thor itself rejects `souji init foo` with a
+  usage message and exit 1): The user passes an argument that fails the
   FR-004 allowlist — empty string, `.`, `..`, a value containing `/`, a value
   starting with `~`, a value ending with `.rb`, whitespace, shell metacharacters
   (`*`, `?`, `$`, …), control characters, or non-ASCII Unicode (e.g. `週次`).
@@ -156,14 +211,12 @@ foo`. Verifiable by listing the directory and by running the plan command.
   command is defined to write into the XDG scenario directory by bare name only;
   users who want a filename outside the allowlist (e.g., Japanese-named
   scenarios) are expected to author the file directly with an editor.
-- **Generated file references recipes that are not installed at apply time**: The
-  active recipe in the sample (`git-worktree`) requires `git`, which is already a
-  documented Souji prerequisite, so a stock workstation produces no recipe-skip
-  warnings on the first `souji plan default`. If the user later uncomments the
-  `terraform-provider` or `docker-image` lines (per FR-008) on a workstation
-  missing those external commands, plan will skip them with a stderr warning per
-  FR-020 of the parent spec; the inline comment in the generated file explains
-  this so a confused user is not surprised.
+- **Generated file references recipes that are not installed at apply time**: As
+  generated, no recipe is active (FR-007), so the first `souji plan` produces no
+  recipe-skip warnings whatsoever. If the user uncomments `docker-image` or
+  `terraform-provider` on a workstation missing the corresponding external
+  command, plan skips the recipe with a stderr warning per FR-020 of the parent
+  spec and still exits 0.
 - **`$XDG_CONFIG_HOME` is set to a non-default location**: The destination path is
   derived from `$XDG_CONFIG_HOME` (with the documented fallback to `~/.config`),
   so a custom value MUST be honoured. Verified by running `XDG_CONFIG_HOME=/tmp/x
@@ -193,11 +246,12 @@ foo`. Verifiable by listing the directory and by running the plan command.
   exist. This is the one and only command in Souji that is permitted to create
   this directory; the rest of the CLI MUST continue to honour FR-007b of the
   parent spec and treat the scenario directory as user-provisioned.
-- **FR-003**: `souji init` MUST accept an optional positional `<name>` argument
-  naming the bare scenario name to generate. When omitted, Souji MUST use the
-  documented default bare name `default`. The resolved filename MUST be
-  `<name>.rb` under the scenario directory.
-- **FR-004**: `souji init` MUST validate `<name>` against the ASCII allowlist
+- **FR-003**: `souji init` MUST take no positional argument and MUST always write
+  the bare name `default`, i.e. `default.rb` under the scenario directory
+  (Clarifications §6). This is the same bare name `souji plan` and `souji apply`
+  resolve to when their own argument is omitted.
+- **FR-004** (DEFERRED with US3 — no `<name>` argument exists to validate):
+  `souji init` MUST validate `<name>` against the ASCII allowlist
   regex `\A[A-Za-z0-9_][A-Za-z0-9_.\-]{0,63}\z` (see Clarifications §3). The
   first character MUST be alphanumeric or underscore; subsequent characters MAY
   additionally include `.` and `-`; total length MUST be 1–64 characters. Any
@@ -208,9 +262,9 @@ foo`. Verifiable by listing the directory and by running the plan command.
   2) and stderr MUST include the offending value (quoted) and a short
   description of the allowed character set.
 - **FR-005**: When the destination path already exists as a regular file,
-  `souji init` MUST NOT overwrite it. Souji MUST exit with usage error (exit
-  code 2) and stderr MUST include the existing path and the literal hint
-  `--force` so the user knows how to override.
+  `souji init` MUST NOT overwrite it. Souji MUST leave the file byte-identical,
+  print the existing path and the literal hint `--force` on stdout, and exit 0
+  (Clarifications §8) — `init` is idempotent.
 - **FR-005a**: When the destination path already exists but is NOT a regular
   file (symbolic link, directory, FIFO, socket, device file, or any other
   non-regular filesystem entry), `souji init` MUST refuse to write — with OR
@@ -225,25 +279,28 @@ foo`. Verifiable by listing the directory and by running the plan command.
   the overwritten path on stdout. `--force` MUST NOT escalate the FR-005a
   refusal — non-regular destinations remain rejected.
 - **FR-007**: The generated file MUST be a syntactically valid scenario that loads
-  cleanly under the existing scenario loader (`Souji::Scenario.from_file`). It
-  MUST reference at least one `target` and exactly one active `recipe` call:
-  `recipe "git-worktree"`. `git-worktree` is chosen because `git` is a Souji
-  prerequisite (see `quickstart.md`), so the sample runs cleanly with no
-  recipe-skip warnings on every supported workstation (see Clarifications §2).
-  The other built-in recipes (`terraform-provider`, `docker-image`) MUST be
-  referenced only as commented-out lines accompanied by a comment explaining
-  how to enable them.
+  cleanly under the existing scenario loader (`Souji::Scenario.from_file`). Every
+  line MUST be a Ruby comment (Clarifications §7): the template declares no
+  targets and no recipes, so the first `souji plan` after `souji init` yields an
+  empty plan and cannot propose a deletion the user did not opt into. All three
+  built-in recipes (`git-worktree`, `terraform-provider`, `docker-image`) MUST
+  appear as commented-out `recipe` lines so the recipe surface is discoverable
+  from the file alone.
+- **FR-007a**: The generated file MUST be ASCII-only. Scenario files are read and
+  `instance_eval`'d, so a non-ASCII byte — even inside a comment — makes the
+  scenario unloadable on a machine whose default external encoding is US-ASCII
+  (`LANG` unset), which would break `souji plan` immediately after `souji init`.
 - **FR-008**: The generated file MUST contain Ruby comments that name each DSL
-  construct it uses (at minimum `target` and `recipe`), show the commented-out
-  invocations for the other built-in recipes per FR-007 with a one-line note
-  about how skipping behaves when an external command is missing (FR-020 of the
-  parent spec), so a reader new to Souji can edit the file without consulting
+  construct it demonstrates (at minimum `target`, `recipe`, and `with_targets`),
+  show how to enable each commented-out recipe, and point at `souji recipes` for
+  the live list, so a reader new to Souji can edit the file without consulting
   external documentation.
 - **FR-009**: On success, `souji init` MUST print the absolute path of the
   generated (or overwritten) file to stdout and exit with success (exit code 0).
-  On any failure (existing file without `--force`, invalid `<name>`, unwritable
-  destination), Souji MUST exit with a non-zero status and write a diagnostic on
-  stderr that names the problematic path.
+  On failure (non-regular destination per FR-005a, unwritable destination), Souji
+  MUST exit with a non-zero status and write a diagnostic on stderr that names the
+  problematic path. The "destination already exists as a regular file" case is a
+  success per FR-005, reported on stdout.
 - **FR-010**: `souji init` MUST NOT modify any file or directory other than the
   destination scenario file and the scenario directory itself. In particular it
   MUST NOT touch `$XDG_CACHE_HOME/souji/`, `$XDG_STATE_HOME/souji/log/`, or any
@@ -261,18 +318,21 @@ foo`. Verifiable by listing the directory and by running the plan command.
 ### Key Entities
 
 - **Sample scenario template**: The Ruby source text that `souji init` writes to
-  disk. Ships as part of the Souji distribution. Contains placeholder `target`
-  and `recipe` calls plus explanatory comments. Bytewise identical across all
-  invocations of the same Souji version, so two `souji init --force` runs back to
-  back produce identical files.
+  disk (`Souji::Commands::InitCommand::TEMPLATE`). Ships as part of the Souji
+  distribution. Consists entirely of comments: commented-out `target`, `recipe`
+  and `with_targets` examples plus explanatory prose. Bytewise identical across
+  all invocations of the same Souji version, so two `souji init --force` runs back
+  to back produce identical files.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
 - **SC-001**: A first-time user can go from a fresh machine to a generated plan
-  in exactly two commands (`souji init && souji plan default`), with no manual
-  directory creation, file editing, or copy-paste from documentation.
+  in exactly two commands (`souji init && souji plan`), with no manual directory
+  creation or copy-paste from documentation. The plan is empty until the user
+  uncomments a target and a recipe (FR-007); the criterion is that no step outside
+  those two commands and an editor pass is required.
 - **SC-002**: The file produced by `souji init` is accepted by `souji plan`
   without any scenario error in 100% of CI runs, on every supported platform
   (macOS and Linux), against an empty target directory.
@@ -284,9 +344,9 @@ foo`. Verifiable by listing the directory and by running the plan command.
   reproduces the same byte content as a fresh `souji init` against an empty
   directory; the user's prior edits are fully replaced.
 - **SC-005**: A reader unfamiliar with Souji can, in under 2 minutes after
-  opening the generated file, correctly state which directory will be scanned and
-  which recipes will run, using only the comments in the file (no external
-  documentation).
+  opening the generated file, correctly state that nothing will be scanned yet and
+  which lines to uncomment to scan a directory with a given recipe, using only the
+  comments in the file (no external documentation).
 - **SC-006**: When `souji init` is interrupted mid-write (simulated via
   `ENOSPC`, SIGKILL, or a mocked I/O error before the rename), the destination
   path is either absent or byte-identical to its pre-invocation state in 100%
@@ -300,21 +360,22 @@ foo`. Verifiable by listing the directory and by running the plan command.
   where this is false (read-only filesystem, restrictive `umask`, SELinux/macOS
   TCC denial) are reported as errors per FR-009; no privilege escalation,
   retry-with-sudo, or alternate-location fallback is in scope.
-- The default bare name chosen for `souji init` when `<name>` is omitted is
-  `default` (see Clarifications §1). This is a deliberate departure from the
+- The bare name `souji init` generates is always `default` (see Clarifications §1
+  and §6). This is a deliberate departure from the
   `weekly.rb` example in `quickstart.md`. `default` is a neutral XDG-flavoured
   name that simply identifies "the scenario you get when you do not name one",
   without implying a specific cadence (weekly) or status (sample). The quickstart
   will be updated alongside this feature so the two stay in sync.
-- The generated sample references a single `target` pointing at `~/work` and a
-  single active recipe call `recipe "git-worktree"` (see Clarifications §2 and
-  FR-007). The other two built-in recipes (`terraform-provider`, `docker-image`)
-  appear only as commented-out lines so the first `souji plan default` produces
-  no recipe-skip warnings on a stock workstation while still discoverably
-  documenting the rest of the recipe surface area.
+- The generated sample activates nothing: `target`, all three `recipe` calls and
+  `with_targets` appear only as commented-out lines (see Clarifications §7 and
+  FR-007). The first `souji plan` therefore produces neither deletions nor
+  recipe-skip warnings, while the file still documents the whole recipe surface
+  area. This supersedes Clarifications §2, which had scoped the active sample to
+  `git-worktree` only.
 - `souji init` is an addition to the CLI surface, not a modification of any
   existing subcommand. The existing rule that no other Souji code path may create
   `$XDG_CONFIG_HOME/souji/scenario/` (parent-spec FR-007b) continues to hold for
   every command other than `init`.
-- The generated file is plain UTF-8 Ruby source with no shebang and no execute
-  bit; it is consumed by `souji plan` via `instance_eval`, not run as a script.
+- The generated file is plain ASCII Ruby source (FR-007a) with no shebang and no
+  execute bit; it is consumed by `souji plan` via `instance_eval`, not run as a
+  script.

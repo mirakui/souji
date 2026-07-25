@@ -65,20 +65,33 @@ souji init [--force]
 
 **Options**:
 
-- `--force` — overwrite an existing `default.rb`. Without it, an existing file
-  is left untouched.
+- `--force` — overwrite an existing **regular** `default.rb`. Without it, an
+  existing file is left untouched. `--force` never applies to a non-regular
+  destination (see step 2 below).
 
 **Behavior**:
 
-1. Create `$XDG_CONFIG_HOME/souji/scenario/` if missing. This is the ONLY
+1. `lstat` the destination. If it exists and is not a regular file (symlink,
+   directory, FIFO, socket, device), refuse with exit 2 and a stderr diagnostic
+   naming the path and its type — with OR without `--force`. `--force` means
+   "overwrite the regular file I edited", not "destroy whatever is in the way";
+   a symlink is typically deliberate (dotfiles management) and a directory is
+   typically a mistake the user should inspect.
+2. Create `$XDG_CONFIG_HOME/souji/scenario/` if missing. This is the ONLY
    command allowed to create the scenario directory (cf. FR-007b, which keeps
-   `plan` / `apply` from auto-creating it).
-2. If `default.rb` already exists and `--force` was not passed, print
-   `<path> already exists (pass --force to overwrite)` to stdout and exit 0
-   (the command is idempotent — re-running it never clobbers user edits).
-3. Otherwise write the scenario template to `default.rb` and print
-   `created <path>` (or `overwrote <path>` under `--force`) to stdout, plus a
-   next-step hint on stderr.
+   `plan` / `apply` from auto-creating it). Nothing outside that directory is
+   touched — in particular not `$XDG_CACHE_HOME` or `$XDG_STATE_HOME`.
+3. If `default.rb` already exists (as a regular file) and `--force` was not
+   passed, print `<path> already exists (pass --force to overwrite)` to stdout
+   and exit 0 (the command is idempotent — re-running it never clobbers user
+   edits).
+4. Otherwise write the scenario template and print `created <path>` (or
+   `overwrote <path>` under `--force`) to stdout, plus a next-step hint on
+   stderr. The write is atomic: the template goes to a temp file in the same
+   directory, is `fsync`ed, then `rename(2)`d over the destination, so a crash
+   mid-write can never leave a truncated scenario that would make `souji plan`
+   die with a SyntaxError. A failure before the rename removes the temp file and
+   leaves the destination untouched.
 
 **Template contract**: every line of the generated template is a comment, so a
 freshly initialized scenario declares no targets and no recipes — `souji plan`
@@ -87,7 +100,8 @@ deleting something the user did not opt into. The template is ASCII-only:
 scenario files are read and `instance_eval`'d, so a non-ASCII byte would make
 the scenario unloadable where the default external encoding is US-ASCII.
 
-**Exit codes used**: 0, 1 (directory or file could not be written).
+**Exit codes used**: 0, 1 (directory or file could not be written), 2
+(destination exists and is not a regular file).
 
 ## Subcommand: `souji plan`
 
