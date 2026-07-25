@@ -85,6 +85,49 @@ RSpec.describe "souji plan (integration)" do
     end
   end
 
+  describe "progress output" do
+    it "reports scenario, recipe and scanned repositories on stderr", :git do
+      with_tmp_dir do |work|
+        repo = build_git_repo(File.join(work, "repo"))
+        prunable = add_worktree(repo: repo, wt_path: File.join(work, "wt-1"), branch_name: "feat-1")
+        make_worktree_prunable!(prunable)
+
+        install_scenario("weekly", <<~RUBY)
+          target "#{work}"
+          recipe "git-worktree"
+        RUBY
+
+        expect(command.call("weekly")).to eq(0)
+
+        scenario_path = File.join(ENV.fetch("XDG_CONFIG_HOME"), "souji", "scenario", "weekly.rb")
+        expect(stderr.string).to include("[souji] scenario #{scenario_path}")
+        expect(stderr.string).to include("[souji] targets: #{work}")
+        expect(stderr.string).to include("[souji] [1/1] recipe git-worktree (targets: #{work})")
+        expect(stderr.string).to include("[souji]   scanning #{repo}")
+        expect(stderr.string).to include("[souji] recipe git-worktree: 1 item")
+        # stdout stays reserved for the deliverable one-liner.
+        expect(stdout.string.lines.size).to eq(1)
+      end
+    end
+
+    it "suppresses progress under --quiet while still writing the plan and the summary", :git do
+      with_tmp_dir do |work|
+        repo = build_git_repo(File.join(work, "repo"))
+        prunable = add_worktree(repo: repo, wt_path: File.join(work, "wt-1"), branch_name: "feat-1")
+        make_worktree_prunable!(prunable)
+
+        install_scenario("weekly", <<~RUBY)
+          target "#{work}"
+          recipe "git-worktree"
+        RUBY
+
+        expect(command.call("weekly", quiet: true)).to eq(0)
+        expect(stderr.string).to eq("")
+        expect(stdout.string).to include("wrote ")
+      end
+    end
+  end
+
   describe "missing scenario" do
     it "exits 2 with stderr listing the path that was tried" do
       exit_code = command.call("nope")

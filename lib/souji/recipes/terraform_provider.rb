@@ -26,6 +26,7 @@ module Souji
         return [] unless plugin_cache_dir && Dir.exist?(plugin_cache_dir)
 
         referenced = collect_referenced(target_roots)
+        progress.scanning(plugin_cache_dir)
         cache_entries = collect_cache_entries(plugin_cache_dir).sort_by { |e| e[:path] }
         cache_entries.reject { |entry| referenced.include?([entry[:address], entry[:version]]) }
                      .map { |entry| build_plan_item(entry) }
@@ -65,6 +66,7 @@ module Souji
           Find.find(root) do |path|
             next unless File.file?(path) && File.basename(path) == ".terraform.lock.hcl"
 
+            progress.scanning(path)
             refs.concat(parse_lockfile(path))
           rescue Errno::EACCES, Errno::ENOENT
             next

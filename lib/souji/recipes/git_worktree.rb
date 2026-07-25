@@ -66,7 +66,9 @@ module Souji
           next unless File.basename(path) == ".git"
 
           # `path` is the .git directory. Its parent is the repo root.
-          repos << File.dirname(path)
+          repo = File.dirname(path)
+          progress.scanning(repo)
+          repos << repo
           Find.prune
         rescue Errno::EACCES, Errno::ENOENT
           Find.prune
