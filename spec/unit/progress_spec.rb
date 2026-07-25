@@ -14,6 +14,7 @@ RSpec.describe Souji::Progress do
       null.scenario_start("/tmp/weekly.rb", ["/tmp/work"])
       null.recipe_start("git-worktree", index: 1, total: 1, targets: ["/tmp/work"])
       null.scanning("/tmp/work/repo")
+      null.note("/tmp/work/repo: no base ref")
       null.recipe_finish("git-worktree", 2)
       null.recipe_skipped("docker-image", "docker")
       # Nothing to assert on an IO — the point is that none of the above raises
@@ -59,6 +60,13 @@ RSpec.describe Souji::Progress do
     it "indents the currently scanned target under its recipe" do
       progress.scanning("/tmp/a/repo")
       expect(io.string).to eq("[souji]   scanning /tmp/a/repo\n")
+    end
+  end
+
+  describe "#note" do
+    it "indents a recipe's remark alongside the targets it scanned" do
+      progress.note("/tmp/a/repo: no base ref to compare against")
+      expect(io.string).to eq("[souji]   /tmp/a/repo: no base ref to compare against\n")
     end
   end
 

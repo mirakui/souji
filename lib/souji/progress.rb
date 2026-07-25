@@ -49,6 +49,13 @@ module Souji
       emit("  scanning #{target}")
     end
 
+    # A remark about something that narrowed what a recipe could look at —
+    # a base ref that would not resolve, a fetch that failed. Indented like
+    # `scanning` because it belongs to the recipe currently running.
+    def note(message)
+      emit("  #{message}")
+    end
+
     def recipe_finish(name, item_count)
       emit("recipe #{name}: #{item_count} #{item_count == 1 ? "item" : "items"}")
     end

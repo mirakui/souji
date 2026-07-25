@@ -56,10 +56,28 @@ module Souji
         #    option a recipe does not declare is an error, so `souji plan`
         #    catches a typo before it scans anything.
         #
-        # git-worktree -- abandoned git worktrees under the targets.
-        #   Takes no options.
+        # git-worktree -- worktrees under the targets that are finished
+        #   with: the ones git has flagged prunable, plus, if you ask for
+        #   them, the ones whose branch is already merged upstream.
+        #
+        #   merged:       also propose worktrees whose branch is already
+        #                 merged into the base ref (default: false).
+        #                 Worktrees that are locked or hold uncommitted
+        #                 changes are never proposed.
+        #   merged_into:  base ref for that check (default: origin/HEAD,
+        #                 falling back to origin/main or origin/master)
+        #   fetch:        refresh the base ref from its remote before
+        #                 judging. The only network access `souji plan`
+        #                 ever makes (default: false)
+        #   older_than_days:  also propose worktrees whose last commit is
+        #                 at least this old, merged or not (default: no
+        #                 age check). A detached HEAD no ref points at is
+        #                 never proposed: deleting it would lose the work.
         #
         # recipe "git-worktree"
+        # recipe "git-worktree", merged: true
+        # recipe "git-worktree", merged: true, fetch: true
+        # recipe "git-worktree", merged: true, older_than_days: 90
         #
         # terraform-provider -- cached provider versions that no
         #   .terraform.lock.hcl under the targets references.

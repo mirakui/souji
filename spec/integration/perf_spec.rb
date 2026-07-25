@@ -54,4 +54,40 @@ RSpec.describe "Performance smoke", :perf, :git do
       expect(plan.items.size).to eq(40)
     end
   end
+
+  # Merged detection costs more per worktree than prunable detection: an
+  # ancestry check, a status check, and a recursive size walk each. The
+  # budget is the same 30 seconds.
+  it "plans 10 git repos × 2 merged worktrees each within 30s" do
+    with_tmp_dir do |work|
+      10.times do |i|
+        repo = build_git_repo(File.join(work, "proj-#{i}"))
+        add_remote_with_main(repo: repo)
+        2.times do |j|
+          branch = "feat-#{i}-#{j}"
+          wt = add_worktree(repo: repo, wt_path: File.join(work, "proj-#{i}", "wt-#{j}"), branch_name: branch)
+          commit_in_worktree(wt)
+          merge_branch_into_default!(repo: repo, branch: branch)
+        end
+      end
+
+      dir = File.join(ENV.fetch("XDG_CONFIG_HOME"), "souji", "scenario")
+      FileUtils.mkdir_p(dir)
+      File.write(File.join(dir, "perf-merged.rb"), <<~RUBY)
+        target "#{work}"
+        recipe "git-worktree", merged: true
+      RUBY
+
+      started = Time.now
+      rc = Souji::Commands::PlanCommand.new(stdout: StringIO.new, stderr: StringIO.new).call("perf-merged")
+      elapsed = Time.now - started
+
+      expect(rc).to eq(0)
+      expect(elapsed).to be < 30, "souji plan took #{elapsed.round(2)}s (limit 30s)"
+
+      plan = Souji::Plan.load_yaml(File.join(ENV.fetch("XDG_CACHE_HOME"), "souji", "perf-merged.soujiplan"))
+      expect(plan.items.size).to eq(20)
+      expect(plan.items.map { |i| i.metadata["detection"] }.uniq).to eq(["merged"])
+    end
+  end
 end

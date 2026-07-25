@@ -50,7 +50,7 @@ Pass `--quiet` to suppress it.
 
 | Recipe | Resource | Options | External command |
 |---|---|---|---|
-| `git-worktree` | Abandoned git worktrees (HEAD-missing, marked prunable by git) | (none) | `git` |
+| `git-worktree` | Abandoned git worktrees: prunable ones always, merged or long-untouched ones on request | `merged:`, `merged_into:`, `fetch:`, `older_than_days:` | `git` |
 | `terraform-provider` | Terraform provider cache entries unreferenced by any `.terraform.lock.hcl` under target_roots | `plugin_cache_dir:` | (none — pure filesystem) |
 | `docker-image` | Dangling docker images | `older_than_days:` | `docker` |
 
@@ -58,6 +58,46 @@ Run `souji recipes` to see the live list with descriptions and options. Options
 are keyword arguments on the `recipe` call, and a recipe accepts only the ones
 it declares — `souji plan` rejects an unknown option (and an unknown recipe
 name) before it scans anything.
+
+### Finding worktrees you are done with
+
+By default `git-worktree` proposes only what git itself calls `prunable`: a
+registration whose directory has vanished. The bulkier kind of cruft is the
+worktree still sitting on disk long after you stopped working in it. Two
+independent rules go looking for those, and a run with both on returns the
+union:
+
+```ruby
+recipe "git-worktree", merged: true                        # base ref auto-detected
+recipe "git-worktree", merged: true, merged_into: "origin/master"
+recipe "git-worktree", merged: true, fetch: true           # refresh the base ref first
+recipe "git-worktree", older_than_days: 90                 # no commit in 90 days
+recipe "git-worktree", merged: true, older_than_days: 90   # either one is enough
+```
+
+**`merged:`** — the branch is already contained in the base ref, so the work
+shipped. The base ref comes from `refs/remotes/origin/HEAD`, falling back to
+`origin/main` then `origin/master`; `merged_into:` overrides it. A repository
+where none of those resolve keeps prunable detection and says on stderr why it
+got no merged check.
+
+**`older_than_days:`** — nothing has been committed on the worktree for that
+many days, merged or not, which is how an abandoned spike gets reclaimed.
+Deleting a worktree leaves its branch behind, so the commits survive; a
+**detached HEAD that no ref points at** has no such anchor and is therefore
+never proposed, with the reason on stderr.
+
+Either way a worktree is only proposed when it is **not locked** and has **no
+uncommitted changes to tracked files**. Untracked files (build output, `.env`)
+do not disqualify it — which is why deleting one moves the directory to the
+trash rather than running `git worktree remove --force`, and why `souji apply`
+re-runs the whole judgement per item before touching anything.
+
+`fetch: true` is the only thing in `souji plan` that touches the network. It
+runs strictly non-interactively (`GIT_TERMINAL_PROMPT=0`, `ssh -o
+BatchMode=yes -o ConnectTimeout=10`) so an expired credential can never leave
+a plan hanging on a prompt, and a failed fetch just falls back to the cached
+remote-tracking ref.
 
 ## XDG layout
 
@@ -79,7 +119,8 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
 ## Safety model
 
 - `souji plan` is structurally read-only — there is no code path from the plan
-  subcommand to filesystem deletion.
+  subcommand to filesystem deletion — and offline, unless a recipe is given
+  `fetch: true`.
 - `souji apply` requires interactive `y/N` confirmation. Non-interactive
   operation requires `--yes`; without a TTY AND without `--yes`, apply
   refuses with exit code 130.
@@ -109,7 +150,7 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
 
 ```bash
 bundle install
-bundle exec rspec           # 169 examples by default (docker tag-gated)
+bundle exec rspec           # 221 examples by default (docker/perf tag-gated)
 bundle exec rubocop
 WITH_DOCKER=1 bundle exec rspec   # include docker integration tests
 gem build souji.gemspec

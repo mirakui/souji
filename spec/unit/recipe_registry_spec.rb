@@ -151,7 +151,8 @@ RSpec.describe Souji::Recipe do
     end
 
     it "declares every param its #enumerate actually reads" do
-      expect(described_class.fetch("git-worktree").param_names).to eq([])
+      expect(described_class.fetch("git-worktree").param_names)
+        .to eq(%i[merged merged_into fetch older_than_days])
       expect(described_class.fetch("docker-image").param_names).to eq([:older_than_days])
       expect(described_class.fetch("terraform-provider").param_names).to eq([:plugin_cache_dir])
     end

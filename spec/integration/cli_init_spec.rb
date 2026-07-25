@@ -65,11 +65,13 @@ RSpec.describe "souji init (integration)" do
       command.call
       body = File.read(scenario_path)
 
-      Souji::Recipe.registry.each_value do |klass|
-        klass.param_names.each do |param|
-          expect(body).to include("#{param}:"),
-                          "expected the init template to show #{klass.recipe_name}'s #{param}: option"
-        end
+      # Counted, not just present: two recipes may declare the same param
+      # name, and one recipe's entry must not vouch for the other's.
+      declarations = Souji::Recipe.registry.each_value.flat_map(&:param_names).tally
+      declarations.each do |param, times|
+        expect(body.scan("#{param}:").size).to be >= times,
+                                               "expected the init template to show #{param}: #{times} time(s), " \
+                                               "once per recipe declaring it"
       end
     end
 

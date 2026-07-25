@@ -1,200 +1,189 @@
 # frozen_string_literal: true
 
-require "open3"
 require "find"
 require_relative "../recipe"
 require_relative "../plan_item"
 require_relative "../errors"
+require_relative "../trash"
+require_relative "../git/command"
+require_relative "../git/registration"
+require_relative "../git/worktree_list"
+require_relative "../git/worktree_policy"
 
 module Souji
   module Recipes
-    # Identifies git worktrees that git itself has flagged as prunable
-    # (HEAD missing on disk, repo gone, etc.) and proposes them for
-    # deletion via `git worktree remove --force`.
+    # Identifies git worktrees that are no longer doing any work and
+    # proposes them for deletion.
     #
-    # Discovery strategy:
-    # 1. Walk each target_root looking for directories containing a
-    #    .git/worktrees/ folder (i.e., a git repository that has at
-    #    least one worktree registered).
-    # 2. Run `git -C <repo> worktree list --porcelain` and parse the
-    #    output looking for entries with a `prunable` line.
-    # 3. Emit a PlanItem per prunable entry.
+    # Three ways a worktree stops doing work:
+    #
+    # 1. git itself flagged it `prunable` — the directory has vanished and
+    #    only the registration is left. Always detected.
+    # 2. Its branch is already contained in the repository's base ref
+    #    (`origin/main` and friends): the work shipped. Opt-in via
+    #    `merged: true`.
+    # 3. Nothing has been committed on it for `older_than_days:` days.
+    #    Opt-in, and independent of (2) — an abandoned spike is worth
+    #    reclaiming whether or not it ever merged.
+    #
+    # `Souji::Git::WorktreePolicy` owns those rules, because `#verify` has
+    # to re-apply exactly the same ones at apply time. This class handles
+    # discovery, plan items, and deletion.
+    #
+    # Discovery walks each target_root for `.git` directories, then asks
+    # each repository `git worktree list --porcelain`. A repository may
+    # register worktrees anywhere on disk; only the ones living under a
+    # declared target are this scenario's business.
     class GitWorktree < Souji::Recipe
       recipe_name "git-worktree"
       required_external_commands "git"
-      description "Remove abandoned git worktrees (HEAD-missing or marked prunable by git)"
+      description "Remove abandoned git worktrees (prunable, already merged, or long untouched)"
+      param :merged, "Also propose worktrees whose branch is already merged into the base ref (default: false)"
+      param :merged_into,
+            "Base ref for the merged check (default: origin/HEAD, falling back to origin/main or origin/master)"
+      param :fetch, "Refresh the base ref from its remote before the merged check (default: false)"
+      param :older_than_days,
+            "Also propose worktrees whose last commit is at least this many days old (default: no age check)"
 
-      def enumerate(target_roots, _params)
+      # Directories that never hold a repository worth scanning but do hold
+      # enough files to dominate the walk.
+      SKIP_DIRS = %w[node_modules .terraform .venv vendor bundle].freeze
+
+      def enumerate(target_roots, params)
         roots = target_roots.map { |root| File.expand_path(root) }
         target_roots
           .flat_map { |root| find_git_repos(root) }
           .uniq
           .sort
-          .flat_map { |repo| enumerate_repo(repo) }
+          .flat_map { |repo| enumerate_repo(repo, params) }
           .select { |item| within_any?(item.path, roots) }
       end
 
       def verify(plan_item)
-        repo = repo_from_metadata(plan_item) || repo_for(plan_item.path)
-        return [:skip, "owning git repository no longer exists"] unless repo && Dir.exist?(repo)
-        return [:skip, "worktree no longer registered with git"] unless still_prunable?(repo, plan_item.path)
+        repo = owning_repo(plan_item)
+        return [:skip, "owning git repository no longer exists"] unless repo
 
-        :ok
+        entry = Souji::Git::WorktreeList.for(repo).find(plan_item.path)
+        return [:skip, "worktree no longer registered with git"] unless entry
+
+        policy_for(repo, recheck_options(plan_item)).recheck(entry, plan_item.metadata["detection"])
       end
 
       def delete(plan_item)
-        repo = repo_from_metadata(plan_item) || repo_for(plan_item.path)
-        return [:failed, "owning git repository missing"] unless repo && Dir.exist?(repo)
+        repo = owning_repo(plan_item)
+        return [:failed, "owning git repository missing"] unless repo
 
         if Dir.exist?(plan_item.path)
-          delete_via_git(repo, plan_item.path)
+          delete_worktree_directory(repo, plan_item.path)
         else
-          # Worktree directory is already gone (the typical "prunable"
-          # case); just remove the registration in .git/worktrees/.
-          delete_metadata(repo, plan_item.path)
+          delete_registration(repo, plan_item.path)
         end
       end
 
       private
 
-      # A repo inside the targets may register worktrees anywhere on disk,
-      # and `git worktree list` reports them all. Only the ones that live
-      # under a declared target are this scenario's business.
       def within_any?(path, roots)
         normalized = File.expand_path(path)
-        roots.any? do |root|
-          normalized == root || normalized.start_with?("#{root}/")
-        end
+        roots.any? { |root| normalized == root || normalized.start_with?("#{root}/") }
       end
 
-      # Find every directory under `root` that has a .git/worktrees/
-      # subdirectory (i.e., a git repo that has registered worktrees).
       def find_git_repos(root)
         return [] unless Dir.exist?(root)
 
         repos = []
         Find.find(root) do |path|
           next unless File.directory?(path)
-          next unless File.basename(path) == ".git"
 
-          # `path` is the .git directory. Its parent is the repo root.
-          repo = File.dirname(path)
-          progress.scanning(repo)
-          repos << repo
-          Find.prune
+          case File.basename(path)
+          when *SKIP_DIRS then Find.prune
+          when ".git"
+            repo = File.dirname(path) # `path` is the .git directory
+            progress.scanning(repo)
+            repos << repo
+            Find.prune
+          end
         rescue Errno::EACCES, Errno::ENOENT
           Find.prune
         end
         repos
       end
 
-      def enumerate_repo(repo)
-        stdout, _stderr, status = Open3.capture3("git", "-C", repo, "worktree", "list", "--porcelain")
-        return [] unless status.success?
+      def enumerate_repo(repo, params)
+        entries = Souji::Git::WorktreeList.for(repo).linked
+        return [] if entries.empty?
 
-        parse_porcelain(stdout).filter_map do |entry|
-          next unless entry[:prunable] && entry[:worktree] && entry[:worktree] != repo
-
-          build_plan_item(entry, repo: repo)
+        policy = policy_for(repo, params)
+        entries.filter_map do |entry|
+          verdict = policy.verdict(entry)
+          build_item(entry, repo: repo, verdict: verdict) if verdict
         end
       end
 
-      def parse_porcelain(text)
-        entries = []
-        current = {}
-        text.each_line do |line|
-          line = line.chomp
-          if line.empty?
-            entries << current unless current.empty?
-            current = {}
-            next
-          end
-          case line
-          when /\Aworktree (.+)\z/ then current[:worktree] = ::Regexp.last_match(1)
-          when /\AHEAD (.+)\z/ then current[:head] = ::Regexp.last_match(1)
-          when /\Abranch (.+)\z/ then current[:branch] = ::Regexp.last_match(1)
-          when /\Aprunable( |\z)(.*)\z/ then current[:prunable] = true
-                                             current[:prunable_reason] = ::Regexp.last_match(2)
-          when /\Adetached\z/ then current[:detached] = true
-          end
-        end
-        entries << current unless current.empty?
-        entries
+      def policy_for(repo, options)
+        Souji::Git::WorktreePolicy.new(repo: repo, options: options, note: progress.method(:note))
       end
 
-      def build_plan_item(entry, repo:)
-        suffix = entry[:prunable_reason].to_s.empty? ? "" : ": #{entry[:prunable_reason]}"
+      # What `#verify` has to re-judge is recorded in the item itself: the
+      # scenario is deliberately not consulted at apply time (FR-011a).
+      def recheck_options(plan_item)
+        metadata = plan_item.metadata
+        {
+          merged: metadata["detection"] == "merged",
+          merged_into: metadata["merged_into"],
+          older_than_days: metadata["older_than_days"]
+        }
+      end
+
+      def build_item(entry, repo:, verdict:)
         Souji::PlanItem.new(
           id: Souji::PlanItem.generate_id("git-worktree"),
           recipe: "git-worktree",
-          path: entry[:worktree],
-          reason: "Worktree marked prunable by git#{suffix}",
-          size_bytes: nil,
+          path: entry.path,
+          reason: verdict.reason,
+          # A prunable worktree's directory is already gone; there is
+          # nothing left on disk to measure.
+          size_bytes: verdict.detection == "prunable" ? nil : dir_size(entry.path),
           metadata: {
-            "repo" => repo,
-            "branch" => entry[:branch],
-            "head" => entry[:head]
-          }.compact
+            "repo" => repo, "branch" => entry.branch, "head" => entry.head,
+            "detection" => verdict.detection
+          }.merge(verdict.metadata).compact
         )
       end
 
-      def repo_from_metadata(plan_item)
-        plan_item.metadata["repo"]
-      end
-
-      # Walk upwards from `path` until we find a .git directory that
-      # mentions `path` in its worktrees subdir. Returns the repo root.
-      def repo_for(path)
-        current = File.expand_path(path)
-        until current == "/" || current.empty?
-          parent = File.dirname(current)
-          git_dir_candidate = File.join(parent, ".git")
-          worktrees_dir = File.join(git_dir_candidate, "worktrees")
-          return parent if Dir.exist?(worktrees_dir) && Dir.children(worktrees_dir).any?
-
-          current = parent
+      def dir_size(path)
+        total = 0
+        Find.find(path) do |entry|
+          total += File.size(entry) if File.file?(entry)
+        rescue Errno::EACCES, Errno::ENOENT
+          next
         end
-        nil
+        total
       end
 
-      def still_prunable?(repo, worktree_path)
-        stdout, _stderr, status = Open3.capture3("git", "-C", repo, "worktree", "list", "--porcelain")
-        return false unless status.success?
-
-        parse_porcelain(stdout).any? do |entry|
-          entry[:worktree] == worktree_path && entry[:prunable]
-        end
+      def owning_repo(plan_item)
+        repo = plan_item.metadata["repo"] || Souji::Git::Registration.owner_of(plan_item.path)
+        repo if repo && Dir.exist?(repo)
       end
 
-      def delete_via_git(repo, path)
-        _stdout, stderr, status = Open3.capture3("git", "-C", repo, "worktree", "remove", "--force", path)
-        return :deleted if status.success?
+      # The worktree still exists on disk. Trash the directory rather than
+      # `git worktree remove --force`: untracked files do not disqualify a
+      # finished worktree, so the deletion has to stay reversible. Recovery
+      # is restoring the directory and `git worktree add <path> <branch>`.
+      def delete_worktree_directory(repo, path)
+        outcome = Souji::Trash.dispose(path)
+        return outcome unless %i[trashed deleted].include?(outcome)
 
-        [:failed, "git worktree remove failed: #{stderr.strip}"]
+        Souji::Git::Command.ok?(repo, "worktree", "prune")
+        outcome
       end
 
-      # Remove only the metadata directory in .git/worktrees/ that
-      # corresponds to this worktree path. We identify it by reading
-      # each entry's `gitdir` file, which points back at the worktree's
-      # ".git" link file.
-      def delete_metadata(repo, worktree_path)
-        worktrees_root = File.join(repo, ".git", "worktrees")
-        return [:failed, ".git/worktrees missing"] unless Dir.exist?(worktrees_root)
+      # The directory is already gone (the typical `prunable` case); only
+      # the registration in .git/worktrees/ is left to remove.
+      def delete_registration(repo, worktree_path)
+        entry_dir = Souji::Git::Registration.entry_dir(repo, worktree_path)
+        return [:failed, "no .git/worktrees/<name>/ entry matched #{worktree_path}"] unless entry_dir
 
-        Dir.children(worktrees_root).each do |name|
-          gitdir_file = File.join(worktrees_root, name, "gitdir")
-          next unless File.file?(gitdir_file)
-
-          recorded = File.read(gitdir_file).strip
-          # `recorded` is the path to the worktree's `.git` link file,
-          # i.e., "<worktree-path>/.git"
-          next unless recorded == File.join(worktree_path, ".git")
-
-          require_relative "../trash"
-          outcome = Souji::Trash.dispose(File.join(worktrees_root, name))
-          return outcome
-        end
-        [:failed, "no .git/worktrees/<name>/ entry matched #{worktree_path}"]
+        Souji::Trash.dispose(entry_dir)
       end
     end
   end

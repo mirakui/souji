@@ -163,6 +163,7 @@ with `[souji] `. A run looks like this:
 [souji] targets: /home/u/work
 [souji] [1/2] recipe git-worktree (targets: /home/u/work)
 [souji]   scanning /home/u/work/some-repo
+[souji]   /home/u/work/other-repo: no base ref to compare against, skipping the merged check
 [souji] recipe git-worktree: 1 item
 [souji] [2/2] recipe docker-image (targets: /home/u/work)
 [souji]   scanning docker images (dangling=true)
@@ -173,8 +174,13 @@ with `[souji] `. A run looks like this:
 `.terraform.lock.hcl`, an external query) — not per traversed directory, so the
 volume stays proportional to what the recipe actually inspects.
 
+Recipes may also emit indented *notes* through `Progress#note` when something
+narrowed what they could look at — a base ref that would not resolve, a fetch
+that failed. Notes are exceptional, not per-target.
+
 **Side effects**: writes the plan file. No other filesystem mutation under the
-target roots (FR-008, SC-003).
+target roots (FR-008, SC-003). A recipe reaches the network only when the
+scenario asks it to (`git-worktree`'s `fetch:`).
 
 **Exit codes used**: 0, 1, 2, 65.
 
