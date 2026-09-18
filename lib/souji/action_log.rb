@@ -24,7 +24,7 @@ module Souji
       @start_time = now
     end
 
-    def record(item:, outcome:, duration_ms:, reason: nil, error: nil, now: Time.now.utc) # rubocop:disable Metrics/ParameterLists
+    def record(item:, outcome:, duration_ms:, reason: nil, error: nil, now: Time.now.utc)
       entry = {
         "ts" => now.utc.iso8601(3),
         "item_id" => item.id,

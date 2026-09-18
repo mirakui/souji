@@ -1,0 +1,222 @@
+# frozen_string_literal: true
+
+module Souji
+  # Filesystem primitives shared by the pure-filesystem recipes.
+  #
+  # Every recipe that hunts for regenerable build output has the same three
+  # needs: walk a target root without descending into the very directories
+  # it is looking for, measure what it found, and decide how stale it is.
+  # Each of those has a sharp edge that is not obvious, so they live here
+  # once rather than being re-derived per recipe:
+  #
+  # - the walk must be deterministic (plan items have to come out in the
+  #   same order on every run), must never follow a symlinked directory,
+  #   and must survive an unreadable subtree;
+  # - `dir_size` must lstat, not stat: a `.terraform/providers` entry is
+  #   often a symlink into the shared plugin cache, and following it both
+  #   inflates the item's size and double-counts it against the
+  #   `terraform-provider` recipe;
+  # - staleness is measured from the artifact's own generation time, never
+  #   from project source activity. A repository whose sources were edited
+  #   today can still hold a provider cache from last year, and that cache
+  #   is exactly what we came for.
+  module FsScan
+    # Directories that cannot hold a project root of the user's own, by
+    # construction: version-control internals, dependency trees and
+    # generated caches. Callers subtract their own target from this list --
+    # `terraform-dir` needs to enter `.terraform`, `node-modules` needs to
+    # enter `node_modules` -- which is also why a single shared walk across
+    # recipes is not possible.
+    #
+    # Names that merely *usually* hold build output -- `build`, `dist`,
+    # `target`, `vendor`, `coverage` -- are deliberately absent, however
+    # much walk time they would save. A real terraform root can live at
+    # `src/build/infra/`, and skipping it would hide its
+    # `.terraform.lock.hcl` from `terraform-provider`'s reference scan.
+    # A reference souji fails to see *widens* the set it proposes
+    # deleting, so this list may only ever cost time, never accuracy.
+    SKIP_DIR_NAMES = %w[
+      .git node_modules .terraform .venv venv .direnv
+      __pycache__ .pytest_cache .next .nuxt .turbo
+    ].freeze
+
+    # Entries `newest_mtime_under` will look at before giving up.
+    DEFAULT_MTIME_BUDGET = 20_000
+
+    SECONDS_PER_DAY = 86_400
+
+    # ENAMETOOLONG and EINVAL are here because `dir_size` walks with no
+    # skip list at all: a legacy npm tree can nest `node_modules` past
+    # PATH_MAX, and `Find.find(ignore_error: true)` used to swallow that
+    # where an explicit walk raises it out of the middle of a plan.
+    WALK_ERRORS = [
+      Errno::EACCES, Errno::ENOENT, Errno::ELOOP, Errno::ENOTDIR,
+      Errno::ENAMETOOLONG, Errno::EINVAL
+    ].freeze
+
+    module_function
+
+    # Yields every directory at or below `root`, parents before children
+    # and siblings in sorted order. A block returning `:prune` stops the
+    # descent into that directory; `skip` prunes by basename before the
+    # block ever sees it.
+    #
+    # Symlinked directories are never descended into, so a symlink loop
+    # cannot hang the walk and a link out of the target roots cannot widen
+    # the scope.
+    def walk_dirs(root, skip: SKIP_DIR_NAMES)
+      root = File.expand_path(root)
+      return unless directory_no_follow?(root)
+
+      skip_set = skip.to_a.to_set
+      stack = [root]
+      until stack.empty?
+        dir = stack.pop
+        next if yield(dir) == :prune
+
+        stack.concat(child_dirs(dir, skip_set).reverse)
+      end
+    end
+
+    # Total size of the regular files at or below `path`, in bytes.
+    # Symlinks count as zero: what a symlink points at is not ours to
+    # reclaim, and it may well be counted by another recipe.
+    def dir_size(path)
+      total = 0
+      walk_dirs(path, skip: []) do |dir|
+        total += files_size(dir)
+      end
+      total
+    end
+
+    # The newest mtime among `paths`, ignoring the ones that do not exist.
+    # Takes paths rather than a directory because the callers know exactly
+    # which few files a tool rewrites when it installs -- an install
+    # receipt is a far better staleness signal than a directory mtime.
+    def newest_mtime(paths)
+      paths.compact.filter_map { |path| mtime_or_nil(path) }.max
+    end
+
+    # The newest mtime anywhere under `root`, and whether the walk ran out
+    # of budget before it finished. A truncated answer is a partial one, so
+    # callers record the flag rather than pretending the result is exact.
+    #
+    # This is informational only: no recipe gates a deletion on project
+    # source activity (see the module docstring).
+    def newest_mtime_under(root, skip: SKIP_DIR_NAMES, budget: DEFAULT_MTIME_BUDGET)
+      newest = nil
+      seen = 0
+      walk_dirs(root, skip: skip) do |dir|
+        next :prune if seen >= budget
+
+        entries = children(dir)
+        seen += entries.size
+        entries.each do |name|
+          mtime = mtime_or_nil(File.join(dir, name))
+          newest = mtime if mtime && (newest.nil? || mtime > newest)
+        end
+      end
+      [newest, seen >= budget]
+    end
+
+    # True when `path` is `root` itself or sits underneath it, for any of
+    # the given roots.
+    def within_any?(path, roots)
+      normalized = File.expand_path(path)
+      roots.any? do |root|
+        normalized_root = File.expand_path(root)
+        normalized == normalized_root || normalized.start_with?("#{normalized_root}/")
+      end
+    end
+
+    # Whole days between `time` and now. nil in, nil out, so a caller with
+    # no timestamp to work from can pass it straight through.
+    def days_since(time, now: Time.now)
+      return nil unless time
+
+      ((now - time) / SECONDS_PER_DAY).floor
+    end
+
+    # Resolves an `older_than_days:` threshold against an artifact's own
+    # generation time. Returns `:stale` (propose it), `:unknown` (the
+    # threshold cannot be evaluated) or `[:fresh, days]`.
+    #
+    # No threshold means no gate: souji's recipes default to proposing
+    # everything that satisfies their safety rules, and narrowing is the
+    # scenario's business. An unmeasurable timestamp under a threshold the
+    # user did ask for is a refusal rather than a pass -- a condition we
+    # cannot evaluate is not a condition we may assume.
+    #
+    # Callers word the outcome themselves, because "initialized 3 days ago"
+    # and "packages installed 3 days ago" are not interchangeable.
+    def staleness(time, older_than_days)
+      return :stale unless older_than_days
+
+      days = days_since(time)
+      return :unknown if days.nil?
+
+      days >= older_than_days ? :stale : [:fresh, days]
+    end
+
+    def days_phrase(days)
+      "#{days} #{days == 1 ? "day" : "days"}"
+    end
+
+    # A text file's contents as valid UTF-8, or nil if it cannot be read.
+    #
+    # Reads bytes and tags them UTF-8 rather than trusting
+    # `Encoding.default_external`, because on a machine with no LANG set
+    # that default is US-ASCII -- and then a `package.json` with a
+    # non-ASCII description makes `JSON.parse` raise
+    # Encoding::InvalidByteSequenceError while transcoding. The files these
+    # recipes read (JSON manifests, pyvenv.cfg, lockfiles) are UTF-8 by
+    # specification or convention, so tagging is right and scrubbing the
+    # remainder keeps a mojibake byte from aborting a whole plan.
+    def read_text(path)
+      File.binread(path).force_encoding(Encoding::UTF_8).scrub
+    rescue SystemCallError, IOError
+      nil
+    end
+
+    # --- smaller shared pieces, also useful on their own ---------------
+
+    def child_dirs(dir, skip_set)
+      children(dir).filter_map do |name|
+        next if skip_set.include?(name)
+
+        child = File.join(dir, name)
+        child if directory_no_follow?(child)
+      end
+    end
+
+    def children(dir)
+      Dir.children(dir).sort
+    rescue *WALK_ERRORS
+      []
+    end
+
+    def files_size(dir)
+      total = 0
+      children(dir).each do |name|
+        stat = lstat_or_nil(File.join(dir, name))
+        total += stat.size if stat&.file?
+      end
+      total
+    end
+
+    def directory_no_follow?(path)
+      stat = lstat_or_nil(path)
+      !stat.nil? && stat.directory?
+    end
+
+    def mtime_or_nil(path)
+      lstat_or_nil(path)&.mtime
+    end
+
+    def lstat_or_nil(path)
+      File.lstat(path)
+    rescue *WALK_ERRORS
+      nil
+    end
+  end
+end

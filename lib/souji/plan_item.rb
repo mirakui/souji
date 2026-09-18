@@ -10,14 +10,14 @@ module Souji
   # mutate by building a new instance instead.
   #
   # See contracts/plan-yaml-schema.md for the on-disk representation.
-  class PlanItem < Data.define(:id, :recipe, :path, :reason, :size_bytes, :metadata) # rubocop:disable Style/DataInheritance
+  class PlanItem < Data.define(:id, :recipe, :path, :reason, :size_bytes, :metadata)
     # Recipe-prefix : 26-char Crockford base32 ULID
     ID_FORMAT = /\A[a-z][a-z0-9-]*:[0-9A-HJKMNP-TV-Z]{26}\z/
 
     # Crockford base32 alphabet (no I, L, O, U)
     CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".chars.freeze
 
-    def self.new(id:, recipe:, path:, reason:, size_bytes: nil, metadata: nil) # rubocop:disable Metrics/ParameterLists
+    def self.new(id:, recipe:, path:, reason:, size_bytes: nil, metadata: nil)
       raise ArgumentError, "id format invalid: #{id.inspect}" unless ID_FORMAT.match?(id)
 
       super(id: id, recipe: recipe, path: path, reason: reason,

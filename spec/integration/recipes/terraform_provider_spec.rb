@@ -73,6 +73,53 @@ RSpec.describe Souji::Recipes::TerraformProvider do
       end
     end
 
+    it "still finds a lockfile under a directory that merely looks like build output" do
+      with_tmp_dir do |dir|
+        # A real terraform root can live at src/build/infra/. Skipping
+        # `build` to save walk time would hide its lockfile, and a
+        # reference souji fails to see WIDENS what it proposes deleting.
+        cache_root = File.join(dir, "plugin-cache")
+        target_dir = File.join(dir, "work")
+        %w[build dist target vendor coverage].each do |name|
+          write_lockfile(File.join(target_dir, "src", name, "infra"),
+                         provider: name, version: "5.0.0")
+          make_cache_entry(cache_root: cache_root, namespace: "hashicorp",
+                           provider: name, version: "5.0.0")
+        end
+
+        expect(recipe.enumerate([target_dir], plugin_cache_dir: cache_root)).to eq([])
+      end
+    end
+
+    it "reads a cache directory whose path contains glob metacharacters" do
+      with_tmp_dir do |dir|
+        cache_root = File.join(dir, "cache[1]")
+        target_dir = File.join(dir, "work")
+        write_lockfile(target_dir, provider: "aws", version: "4.55.0")
+        entry = make_cache_entry(cache_root: cache_root, namespace: "hashicorp",
+                                 provider: "aws", version: "4.50.0")
+
+        expect(recipe.enumerate([target_dir], plugin_cache_dir: cache_root).map(&:path)).to eq([entry])
+      end
+    end
+
+    it "ignores lockfiles vendored inside dependency trees" do
+      with_tmp_dir do |dir|
+        cache_root  = File.join(dir, "plugin-cache")
+        target_dir  = File.join(dir, "work")
+        # The only lockfile mentioning aws 4.55.0 is a fixture buried in a
+        # dependency tree. A vendored lockfile is not a statement about what
+        # this workstation depends on, so it must not pin the cache.
+        write_lockfile(File.join(target_dir, "node_modules", "some-pkg", "fixtures"),
+                       provider: "aws", version: "4.55.0")
+        entry = make_cache_entry(cache_root: cache_root, namespace: "hashicorp",
+                                 provider: "aws", version: "4.55.0")
+
+        items = recipe.enumerate([target_dir], plugin_cache_dir: cache_root)
+        expect(items.map(&:path)).to eq([entry])
+      end
+    end
+
     it "returns deterministic ordering across runs" do
       with_tmp_dir do |dir|
         cache_root = File.join(dir, "plugin-cache")

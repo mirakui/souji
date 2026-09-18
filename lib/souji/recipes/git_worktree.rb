@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 
-require "find"
 require_relative "../recipe"
 require_relative "../plan_item"
 require_relative "../errors"
 require_relative "../trash"
+require_relative "../fs_scan"
 require_relative "../git/command"
 require_relative "../git/registration"
 require_relative "../git/worktree_list"
@@ -45,18 +45,17 @@ module Souji
       param :older_than_days,
             "Also propose worktrees whose last commit is at least this many days old (default: no age check)"
 
-      # Directories that never hold a repository worth scanning but do hold
-      # enough files to dominate the walk.
-      SKIP_DIRS = %w[node_modules .terraform .venv vendor bundle].freeze
+      # A repository is found by its `.git`, so the walk has to be allowed
+      # into it -- everything else in the shared skip list stays pruned.
+      WALK_SKIP_DIRS = (Souji::FsScan::SKIP_DIR_NAMES - [".git"]).freeze
 
       def enumerate(target_roots, params)
         roots = target_roots.map { |root| File.expand_path(root) }
         target_roots
           .flat_map { |root| find_git_repos(root) }
           .uniq
-          .sort
           .flat_map { |repo| enumerate_repo(repo, params) }
-          .select { |item| within_any?(item.path, roots) }
+          .select { |item| Souji::FsScan.within_any?(item.path, roots) }
       end
 
       def verify(plan_item)
@@ -82,28 +81,17 @@ module Souji
 
       private
 
-      def within_any?(path, roots)
-        normalized = File.expand_path(path)
-        roots.any? { |root| normalized == root || normalized.start_with?("#{root}/") }
-      end
-
+      # `FsScan.walk_dirs` yields siblings sorted, so the repositories come
+      # out in a stable order without a sort of their own.
       def find_git_repos(root)
-        return [] unless Dir.exist?(root)
-
         repos = []
-        Find.find(root) do |path|
-          next unless File.directory?(path)
+        Souji::FsScan.walk_dirs(root, skip: WALK_SKIP_DIRS) do |dir|
+          next unless File.basename(dir) == ".git"
 
-          case File.basename(path)
-          when *SKIP_DIRS then Find.prune
-          when ".git"
-            repo = File.dirname(path) # `path` is the .git directory
-            progress.scanning(repo)
-            repos << repo
-            Find.prune
-          end
-        rescue Errno::EACCES, Errno::ENOENT
-          Find.prune
+          repo = File.dirname(dir)
+          progress.scanning(repo)
+          repos << repo
+          :prune
         end
         repos
       end
@@ -142,22 +130,12 @@ module Souji
           reason: verdict.reason,
           # A prunable worktree's directory is already gone; there is
           # nothing left on disk to measure.
-          size_bytes: verdict.detection == "prunable" ? nil : dir_size(entry.path),
+          size_bytes: verdict.detection == "prunable" ? nil : Souji::FsScan.dir_size(entry.path),
           metadata: {
             "repo" => repo, "branch" => entry.branch, "head" => entry.head,
             "detection" => verdict.detection
           }.merge(verdict.metadata).compact
         )
-      end
-
-      def dir_size(path)
-        total = 0
-        Find.find(path) do |entry|
-          total += File.size(entry) if File.file?(entry)
-        rescue Errno::EACCES, Errno::ENOENT
-          next
-        end
-        total
       end
 
       def owning_repo(plan_item)

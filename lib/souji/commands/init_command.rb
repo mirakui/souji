@@ -89,6 +89,50 @@ module Souji
         # recipe "terraform-provider"
         # recipe "terraform-provider", plugin_cache_dir: "~/.terraform.d/plugin-cache"
         #
+        # terraform-dir -- the regenerable contents of a local
+        #   .terraform/: providers/, modules/, and anything else
+        #   `terraform init` rebuilds. The two entries init does NOT
+        #   rebuild -- `environment`, which records the selected
+        #   workspace, and the cached backend config -- are never
+        #   proposed, so a cleanup cannot point your next apply at the
+        #   wrong workspace. A root is only proposed when it has *.tf
+        #   files AND a .terraform.lock.hcl (without the lock, re-init
+        #   could silently change provider versions), and never while an
+        #   apply might be in flight: a held state lock, a leftover
+        #   errored.tfstate, or a saved plan file.
+        #
+        #   older_than_days:  only propose contents whose last
+        #                     `terraform init` is at least this old
+        #                     (default: no age filter)
+        #
+        # recipe "terraform-dir"
+        # recipe "terraform-dir", older_than_days: 90
+        #
+        # node-modules -- node_modules/ trees a lockfiled install can
+        #   rebuild. Requires a sibling package.json that parses and a
+        #   sibling lockfile: an install without a lockfile re-resolves
+        #   semver ranges, so what comes back is not what was deleted.
+        #   In a monorepo only the root holding the lockfile is proposed.
+        #
+        #   older_than_days:  only propose trees whose last install is at
+        #                     least this old (default: no age filter)
+        #
+        # recipe "node-modules"
+        # recipe "node-modules", older_than_days: 90
+        #
+        # python-venv -- virtualenvs a sibling manifest can recreate. A
+        #   venv is recognised by its pyvenv.cfg and interpreter, not by
+        #   its name, and needs uv.lock / poetry.lock / Pipfile.lock /
+        #   requirements.txt / pyproject.toml in its immediate parent. The
+        #   virtualenv souji is running inside is never proposed, and
+        #   conda environments never match.
+        #
+        #   older_than_days:  only propose venvs whose last install is at
+        #                     least this old (default: no age filter)
+        #
+        # recipe "python-venv"
+        # recipe "python-venv", older_than_days: 90
+        #
         # docker-image -- dangling images (no tag, no container ancestry).
         #   Path-independent: it ignores the targets entirely.
         #
@@ -97,6 +141,18 @@ module Souji
         #
         # recipe "docker-image"
         # recipe "docker-image", older_than_days: 30
+        #
+        # For terraform-dir, node-modules and python-venv, older_than_days
+        # is measured from the artifact's own last generation -- the last
+        # `terraform init`, the package manager's install receipt, the
+        # venv's site-packages -- not from when you last edited the
+        # project. A repository you touched today can still hold a
+        # provider cache from last year, and that cache is the point.
+        #
+        # Worktree items and these three nest, because a worktree can hold
+        # a .terraform/ or a node_modules/. Declare git-worktree first: the
+        # worktree then goes to the trash as one unit and the nested items
+        # report "already removed" when apply re-verifies them.
         #
         # 3. Narrow a recipe to a subset of the targets with with_targets.
         #    The paths must sit inside an already-declared target -- this

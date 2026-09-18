@@ -4,6 +4,7 @@ require "psych"
 require_relative "errors"
 require_relative "plan_item"
 require_relative "version"
+require_relative "fs_scan"
 
 module Souji
   # Plan — the deliverable of `souji plan`, persisted as YAML.
@@ -21,7 +22,7 @@ module Souji
                 :scenario_path, :scenario_content_sha256,
                 :target_roots, :items
 
-    def initialize(souji_plan_version:, souji_version:, generated_at:, # rubocop:disable Metrics/ParameterLists
+    def initialize(souji_plan_version:, souji_version:, generated_at:,
                    scenario_path:, scenario_content_sha256:,
                    target_roots:, items:)
       @souji_plan_version = souji_plan_version
@@ -128,11 +129,7 @@ module Souji
     end
 
     def under_any_root?(path)
-      normalized = File.expand_path(path)
-      @target_roots.any? do |root|
-        normalized_root = File.expand_path(root)
-        normalized == normalized_root || normalized.start_with?("#{normalized_root}/")
-      end
+      Souji::FsScan.within_any?(path, @target_roots)
     end
   end
 end
