@@ -25,6 +25,18 @@ module Souji
         install_external_stub
       end
 
+      # Every command with a registered stub counts as installed.
+      #
+      # Without this, a "fully stubbed" unit spec still consults the
+      # developer's PATH through `Souji::Recipe.available?`, and passes or
+      # fails depending on which tools happen to be installed -- which is
+      # how two mise examples passed here and failed in CI. A per-example
+      # `allow(...).with(cmd)` still overrides this, so the specs that
+      # assert the tool has *left* PATH keep working.
+      def stubbed_tools
+        external_stubs.map { |stub| stub[:argv].first }.uniq
+      end
+
       # Every argv `Souji::External::Command.run` was asked to run.
       def external_calls
         @external_calls ||= []
@@ -54,6 +66,8 @@ module Souji
         return if @external_stub_installed
 
         @external_stub_installed = true
+        allow(Souji::Recipe).to receive(:available?).and_call_original
+        allow(Souji::Recipe).to receive(:available?) { |cmd| stubbed_tools.include?(cmd.to_s) }
         allow(Souji::External::Command).to receive(:run) do |*argv, **_options|
           flat = argv.flatten.map(&:to_s)
           external_calls << flat
