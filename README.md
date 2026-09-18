@@ -56,6 +56,13 @@ Pass `--quiet` to suppress it.
 | `node-modules` | Stale `node_modules/` trees a lockfiled install can rebuild | `older_than_days:` | (none — pure filesystem) |
 | `python-venv` | Stale Python virtualenvs a sibling manifest can recreate | `older_than_days:` | (none — pure filesystem) |
 | `docker-image` | Dangling docker images | `older_than_days:` | `docker` |
+| `docker-container` | Stopped, created and dead containers | `older_than_days:` | `docker` |
+| `docker-build-cache` | Reclaimable buildkit cache | `unused_for_days:` | `docker` |
+| `uv-cache` | uv's unreachable cache objects | (none) | `uv` |
+| `pnpm-store` | pnpm's unreferenced store packages | (none) | `pnpm` |
+| `brew-cache` | Homebrew's outdated downloads | `prune_days:` | `brew` |
+| `mise-version` | mise tool versions no tracked config references | `tools:` | `mise` |
+| `go-cache` | go's build cache and/or module cache (opt-in) | `build_cache:`, `mod_cache:` | `go` |
 
 Run `souji recipes` to see the live list with descriptions and options. Options
 are keyword arguments on the `recipe` call, and a recipe accepts only the ones
@@ -172,6 +179,79 @@ because a worktree can hold a `.terraform/` or a `node_modules/`. Declare
 `git-worktree` first; the worktree then goes to the trash as one unit and each
 nested item's re-verification reports `already removed`.
 
+### Tool-managed caches
+
+The last five recipes do not delete anything themselves. They ask the tool to
+prune its own cache:
+
+```ruby
+recipe "uv-cache"                                  # uv cache prune
+recipe "pnpm-store"                                # pnpm store prune
+recipe "brew-cache"                                # brew cleanup --prune=all
+recipe "brew-cache", prune_days: 30                # brew cleanup --prune=30
+recipe "mise-version"                              # mise uninstall, per version
+recipe "mise-version", tools: ["awscli"]
+recipe "go-cache", build_cache: true               # go clean -cache
+recipe "go-cache", build_cache: true, mod_cache: true
+```
+
+`uv`, `pnpm` and `mise` keep content-addressable stores with their own
+indexes. souji unlinking objects would leave the index describing files that
+are gone, so the tool's notion of *unreferenced* is the one that applies. The
+plan records the literal command each item will run, so what you approve reads
+as a script.
+
+Delegating costs three things, and souji states them rather than hiding them:
+
+- **Nothing goes to the trash.** souji never holds these paths, so every one
+  of these deletions is irreversible and the item says so.
+- **The size may be unknown.** Only a figure souji believes will actually be
+  freed goes in `size_bytes`. `uv cache prune` has no dry run and reports only
+  the whole cache's size, so that becomes an upper bound offered as upside.
+  `pnpm` reports nothing at all and souji declines to guess: its store is
+  hardlinked into the `node_modules` trees `node-modules` already measures, so
+  walking it would count those bytes twice.
+- **The tool's scope is not your scope.** These recipes ignore `target_roots`
+  entirely (see the safety model below). For `mise-version`, "unreferenced"
+  means unreferenced by a config mise has *tracked*, which may not match the
+  directories you declared.
+
+The five are not equally safe, and the design reflects that. `uv cache prune`,
+`pnpm store prune` and `mise uninstall` remove only what nothing references.
+`brew cleanup` removes outdated downloads. **`go clean` removes everything**,
+not merely what is unused — so each half is opt-in and a bare
+`recipe "go-cache"` proposes nothing and says why. `mise-version` is the only
+one of the five that gets per-item plan rows, because mise is the only tool
+that can both enumerate its prunable units and remove exactly one.
+
+### Docker on macOS
+
+On macOS the docker daemon runs inside a Linux VM (Rancher Desktop, Docker
+Desktop, colima). Pruning inside that VM **does not shrink the VM's sparse
+disk image**, so the space is reclaimed inside the VM and the host's `df` does
+not move. souji detects this, says so while planning, and keeps those bytes
+out of the "freed on this host" total:
+
+```
+About to delete 43 items; at least 4.9 GB will be freed on this host.
+  2 items of unknown size may free up to 9.3 GB more.
+  8.9 GB is freed inside the docker VM, which does not free host disk.
+```
+
+Actually reclaiming the VM's image means resetting it — Rancher Desktop's
+"reset disk", or recreating the `limactl` instance — which destroys every
+image and volume in it. souji does not do that, and pruning is still worth
+doing: it stops the image growing further.
+
+`docker-container` removes only containers docker itself reports as `exited`,
+`created` or `dead`, filters that list again on souji's side, re-checks each
+container's state immediately before removal, and runs `docker rm` without
+`-f` — so even losing a race with `docker compose up` fails loudly instead of
+killing something that is working. `-v` is never passed: removing a container
+is not consent to remove a database's data directory. There is deliberately
+**no `docker-volume` recipe**; `docker volume ls` cannot tell an anonymous
+volume holding real data from scratch space.
+
 ## XDG layout
 
 | Default location | Purpose | Auto-created? |
@@ -202,10 +282,19 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
   no longer qualify (e.g., a worktree that has been re-activated) are skipped
   with a reason in the action log.
 - Plan items whose path is outside the plan's `target_roots` are rejected at
-  plan load time (exit 66 before any deletion). Recipes that act on
-  non-filesystem resources (`docker-image`) are the named exception: their
-  items carry a synthetic URI rather than a path, and what bounds them is the
-  tool's own notion of *unreferenced*, not your targets.
+  plan load time (exit 66 before any deletion).
+- **The named exception**: a recipe that acts on a tool's own store cannot
+  honour that shape, and builds items carrying a synthetic URI
+  (`uv-cache://prune`) instead of a path. Such a recipe must declare
+  `scope_free!`; `souji recipes` marks it, `souji apply` says how many items
+  are affected before asking for confirmation, and `souji plan` refuses a
+  recipe that escapes containment without the declaration — so the disclosure
+  cannot drift from what the recipe does. What bounds a scope-free recipe is
+  the tool's own notion of *unreferenced*, not your targets. Today they are
+  `docker-image`, `docker-container`, `docker-build-cache`, `uv-cache`,
+  `pnpm-store`, `brew-cache`, `mise-version` and `go-cache`.
+- Souji shells out with a timeout and with stdin closed, so a tool that decides
+  to prompt gets EOF rather than hanging `souji apply` after you consented.
 - Symlinks are never followed: no walk descends into a symlinked directory,
   and a symlink contributes zero to a reported size rather than the size of
   whatever it points at.
@@ -229,9 +318,13 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
 
 ```bash
 bundle install
-bundle exec rspec           # 323 examples by default (docker/perf tag-gated)
+bundle exec rspec           # 479 examples by default (tool-tagged ones excluded)
 bundle exec rubocop
-WITH_DOCKER=1 bundle exec rspec   # include docker integration tests
+
+# Integration tests that drive a real tool are tag-gated. They only ever run
+# read-only probes -- never a recipe's #delete, which would prune your own
+# caches.
+WITH_DOCKER=1 WITH_UV=1 WITH_PNPM=1 WITH_BREW=1 WITH_MISE=1 WITH_GO=1 bundle exec rspec
 gem build souji.gemspec
 ```
 
