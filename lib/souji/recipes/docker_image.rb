@@ -29,7 +29,7 @@ module Souji
 
       def enumerate(_target_roots, params)
         older_than_days = params[:older_than_days]
-        note_vm
+        Souji::External::Docker.note_vm(progress)
         list_dangling.select { |img| matches_age_filter?(img, older_than_days) }
                      .sort_by { |img| img[:id] }
                      .map { |img| build_plan_item(img) }
@@ -56,11 +56,6 @@ module Souji
 
       def image_id(plan_item)
         plan_item.metadata["image_id"] || plan_item.path.delete_prefix("docker-image://")
-      end
-
-      def note_vm
-        note = Souji::External::Docker.vm_note
-        progress.note(note) if note
       end
 
       def list_dangling

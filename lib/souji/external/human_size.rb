@@ -12,9 +12,10 @@ module Souji
     # - **Homebrew** prints binary quantities behind SI-looking labels:
     #   its `34.6MB` is 34.6 * 1048576.
     #
-    # `:leading` handles docker's container form, `"625kB (virtual 45.7MB)"`,
-    # where only the first figure is the writable layer `docker rm`
-    # actually frees.
+    # `parse_all` handles docker's container form,
+    # `"625kB (virtual 45.7MB)"`, where the first figure is the writable
+    # layer `docker rm` actually frees and the second is shared with the
+    # image.
     module HumanSize
       SI = { "B" => 1, "KB" => 1000, "MB" => 1000**2, "GB" => 1000**3, "TB" => 1000**4 }.freeze
       BINARY = { "B" => 1, "KB" => 1024, "MB" => 1024**2, "GB" => 1024**3, "TB" => 1024**4 }.freeze
@@ -29,16 +30,19 @@ module Souji
       # Bytes, or nil when there is no size to read -- `"N/A"`, `""`, an
       # unrecognised unit. Zero is a real answer and comes back as 0.
       def parse(text, base: :si)
-        return nil unless text.is_a?(String)
+        parse_all(text, base: base).first
+      end
 
-        match = text.match(NUMBER)
-        return nil unless match
+      # Every size in the string, in order, so a caller reading a compound
+      # form does not need a second regex of its own.
+      def parse_all(text, base: :si)
+        return [] unless text.is_a?(String)
 
         units = UNITS.fetch(base)
-        multiplier = units[match[2].upcase]
-        return nil unless multiplier
-
-        (match[1].to_f * multiplier).round
+        text.scan(NUMBER).filter_map do |number, unit|
+          multiplier = units[unit.upcase]
+          (number.to_f * multiplier).round if multiplier
+        end
       end
     end
   end

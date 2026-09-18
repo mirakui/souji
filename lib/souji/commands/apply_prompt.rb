@@ -26,7 +26,6 @@ module Souji
       UNITS = %w[B KB MB GB TB].freeze
 
       def initialize(plan, plan_path)
-        @plan = plan
         @plan_path = plan_path
         @summary = plan.summary
       end
@@ -76,12 +75,16 @@ module Souji
       # souji's containment promise is that nothing outside the declared
       # targets is touched. The recipes acting on a tool's own store are the
       # exception, and this prompt is where saying so actually matters.
+      #
+      # Read from the summary, which reads the items' own `scope_free`
+      # metadata. Matching the URI shape here instead would make the same
+      # fact true in two places for different reasons.
       def scope_free_lines
-        escaping = @plan.items.select { |item| Souji::Plan::SYNTHETIC_URI_RE.match?(item.path) }
-        return [] if escaping.empty?
+        count = @summary[:scope_free_count]
+        return [] if count.zero?
 
-        ["  #{pluralize(escaping.size, "item")} sit outside your target roots " \
-         "(scope-free recipes: #{escaping.map(&:recipe).uniq.sort.join(", ")})."]
+        ["  #{pluralize(count, "item")} sit outside your target roots " \
+         "(scope-free recipes: #{@summary[:scope_free_recipes].join(", ")})."]
       end
 
       def recipe_lines

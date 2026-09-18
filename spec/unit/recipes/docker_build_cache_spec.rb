@@ -89,6 +89,20 @@ RSpec.describe Souji::Recipes::DockerBuildCache do
         expect(item.metadata["argv"]).to eq(["docker", "builder", "prune", "-f",
                                              "--filter", "unused-for=720h"])
       end
+
+      it "downgrades the figure to an upper bound, because the filter frees a subset" do
+        # docker system df reports what an UNFILTERED prune frees. On a host
+        # whose cache was all touched this week, claiming 8.7 GB and freeing
+        # nothing is exactly the overstatement this PR set out to remove.
+        stub_df
+
+        item = recipe.enumerate([], unused_for_days: 30).first
+
+        expect(item.size_bytes).to be_nil
+        expect(item.metadata["size_bytes_upper_bound"]).to eq(8_709_000_000)
+        expect(item.metadata["size_basis"]).to match(/upper bound/)
+        expect(item.reason).to match(/only the records unused for 30 days/)
+      end
     end
 
     it "flags the item when the daemon runs in a VM" do

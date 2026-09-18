@@ -86,7 +86,11 @@ there, and two kinds do not:
 - **Unmeasurable.** `uv cache size` reports the size of the *whole* cache,
   not the reclaimable part. Summing it would turn "at least this much" into a
   promise; the user reads 10 GB and `uv cache prune` frees 400 MB. It goes to
-  `metadata.size_bytes_upper_bound` and is reported as upside.
+  `metadata.size_bytes_upper_bound` and is reported as upside. The same
+  applies to `docker-build-cache` **whenever `unused_for_days:` is set**:
+  `docker system df` reports what an *unfiltered* prune frees, and docker
+  cannot say in advance how much of that is unused for N days, so the figure
+  becomes an upper bound rather than a claim.
 - **Freed inside a VM.** See D7.
 
 `metadata.size_basis` names how each figure was obtained, so the plan YAML is
@@ -127,6 +131,23 @@ directory still exists. Two tools offer a genuine non-mutating re-probe on top:
   scenario's targets and which changes the moment the user opens an old
   project. A version that stops being prunable between plan and apply has
   been legitimately reclaimed, and `#verify` is what notices.
+
+  The map is memoized on the class, mirroring `External::Docker.info`,
+  because `ApplyCommand` builds a fresh recipe instance per item: a 30-item
+  plan otherwise ran the query 30 times, each resolving every tracked
+  config. Memoizing rather than narrowing to `mise ls --prunable <tool>` also
+  gives one consistent view of "prunable" across a single apply, and avoids
+  depending on a second response shape — with a tool argument mise returns a
+  bare array rather than a map.
+
+A probe that *fails* is not the same fact as a probe that came back empty,
+and neither recipe may put something souji did not observe into the action
+log. A failed `mise ls` reports "could not be read" rather than "a tracked
+config now references it"; a `docker container inspect` that timed out, or
+that failed against a daemon that is not answering, is reported as such
+rather than as "container no longer present". `docker-container`'s listing
+does the same on stderr, so an empty plan is distinguishable from a probe
+that gave up.
 
 `uv-cache`, `pnpm-store` and `go-cache` have no such probe, and each says so
 in its own class documentation so that a thin `#verify` reads as a fact about
@@ -185,6 +206,12 @@ confirmation, and — the part that keeps it honest —
 synthetic URI without having declared it. The disclosure cannot drift from
 what the recipe does.
 
+The apply confirmation counts the items that carry
+`metadata.scope_free`, read in `Plan#summary` alongside the other two
+qualifiers. It deliberately does *not* re-derive the fact by matching the URI
+shape: that would make the same claim true in two places for different
+reasons, and leave the metadata key nothing reads.
+
 **No scenario-level gate was added.** Typing `recipe "uv-cache"` in a file
 you wrote is per-recipe consent already, and the marker plus the apply line
 remove the possibility of surprise. A second `allow_scope_free!` declaration
@@ -203,6 +230,15 @@ that both land on the user at the worst moment:
 - **Deadlock.** A `wait_thr.join` with unread pipes hangs once the child
   fills a pipe buffer, which `docker buildx du` does on a few hundred records.
   Hence a drain thread per stream.
+- **A timeout the child can outlive.** Signalling only the direct child is
+  not enough: `docker builder prune` dispatches to the `docker-buildx` CLI
+  plugin as a subprocess sharing our stdout, so the orphan keeps the write
+  end open and a reader waits for an EOF that never comes. Measured on this
+  machine, a 2-second timeout took the grandchild's full 20 seconds. Fixed by
+  `pgroup: true` plus signalling the negative pid, and by bounding the reader
+  wait afterwards so that even an unkillable holder cannot hang
+  `souji apply` — a partial answer beats a hang, since the user has already
+  consented by then.
 
 Stdin is closed immediately so a prompt becomes EOF. Note that `popen3`
 always hands the child a stdin pipe and an `in:` option does **not** displace

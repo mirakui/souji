@@ -32,6 +32,21 @@ RSpec.describe Souji::External::Command do
       expect(result).not_to be_success
     end
 
+    it "still times out when a grandchild keeps the inherited pipe open" do
+      # `docker builder prune` dispatches to the docker-buildx plugin as a
+      # subprocess sharing our stdout. Killing only the direct child leaves
+      # the grandchild holding the write end and a reader waiting for an EOF
+      # that never comes -- souji apply would hang after the user consented.
+      # Before signalling the process group this took the grandchild's full
+      # 20 seconds despite a 2-second timeout.
+      started = Time.now
+
+      result = described_class.run("sh", "-c", "sleep 20 & sleep 20", timeout: 2)
+
+      expect(result.timed_out).to be true
+      expect(Time.now - started).to be < 10
+    end
+
     it "does not deadlock on output larger than a pipe buffer" do
       # A naive wait_thr.join with unread pipes hangs here, which is why
       # each stream gets its own drain thread. `docker buildx du` produces

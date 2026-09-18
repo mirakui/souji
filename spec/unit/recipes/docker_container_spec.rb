@@ -84,6 +84,29 @@ RSpec.describe Souji::Recipes::DockerContainer do
       expect(recipe.enumerate([], {})).to eq([])
     end
 
+    it "asks for the slow probe budget, because --size makes the daemon walk trees" do
+      stub_ps
+      allow(Souji::External::Command).to receive(:run).and_call_original
+
+      recipe.enumerate([], {})
+
+      expect(Souji::External::Command).to have_received(:run)
+        .with("docker", "ps", "-a", any_args,
+              timeout: Souji::External::Command::SLOW_PROBE_TIMEOUT)
+    end
+
+    it "says so on stderr when the probe fails, rather than quietly proposing nothing" do
+      # An empty plan and a timed-out probe look identical otherwise.
+      stub_external("docker", "ps", stdout: "", exitstatus: -1, timed_out: true)
+      progress = instance_double(Souji::Progress)
+      allow(progress).to receive(:scanning)
+      allow(progress).to receive(:note)
+      recipe.progress = progress
+
+      expect(recipe.enumerate([], {})).to eq([])
+      expect(progress).to have_received(:note).with(/docker ps timed out/)
+    end
+
     it "never runs a mutating command while planning" do
       stub_ps
 
@@ -114,9 +137,26 @@ RSpec.describe Souji::Recipes::DockerContainer do
 
     it "skips a container that has gone" do
       subject_item = item
-      stub_external("docker", "container", "inspect", stdout: "", exitstatus: 1)
+      stub_external("docker", "container", "inspect", stdout: "",
+                                                      stderr: "Error: No such container: x\n", exitstatus: 1)
 
       expect(recipe.verify(subject_item)).to eq([:skip, "container no longer present"])
+    end
+
+    it "does not report a stopped daemon as a missing container" do
+      subject_item = item
+      stub_external("docker", "container", "inspect", stdout: "",
+                                                      stderr: "Cannot connect to the Docker daemon\n",
+                                                      exitstatus: 1)
+
+      expect(recipe.verify(subject_item).last).to match(/docker is not answering/)
+    end
+
+    it "does not report a timed-out inspect as a missing container" do
+      subject_item = item
+      stub_external("docker", "container", "inspect", exitstatus: -1, timed_out: true)
+
+      expect(recipe.verify(subject_item)).to eq([:skip, "docker container inspect timed out"])
     end
 
     it "skips a container that has been started again since planning" do

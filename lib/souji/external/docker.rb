@@ -61,6 +61,13 @@ module Souji
         "docker daemon runs in a VM (#{[daemon_name, daemon_os].compact.join(" / ")}); " \
           "reclaimed space stays inside the VM disk image and does not free host disk"
       end
+
+      # Every docker recipe says this the same way, so the wording lives
+      # here rather than in three copies.
+      def note_vm(progress)
+        note = vm_note
+        progress.note(note) if note
+      end
     end
   end
 end

@@ -5,6 +5,12 @@ require "souji/recipes/mise_version"
 RSpec.describe Souji::Recipes::MiseVersion do
   let(:recipe) { described_class.new }
 
+  # The prunable map is memoized on the class for the life of a process,
+  # so each example needs its own.
+  before { described_class.reset! }
+
+  after { described_class.reset! }
+
   # The fixture's install paths have to exist for the sizes and the
   # cache-dir re-check to mean anything, so they are rooted in a tmp dir.
   def stub_mise(tmp, json: mise_ls_prunable_json)
@@ -132,13 +138,44 @@ RSpec.describe Souji::Recipes::MiseVersion do
     it "skips a version a tracked config has started referencing again" do
       # The load-bearing re-check: what counts as prunable depends on the
       # config files mise has tracked, and opening an old project between
-      # plan and apply legitimately revokes the item.
+      # plan and apply legitimately revokes the item. The reset stands for
+      # apply running as its own process.
       with_tmp_dir do |tmp|
         stub_mise(tmp)
         item = recipe.enumerate([], {}).find { |i| i.metadata["tool"] == "awscli" }
+
+        described_class.reset!
         stub_external("mise", "ls", "--prunable", stdout: mise_ls_prunable_empty)
 
         expect(recipe.verify(item).last).to match(/no longer prunable/)
+      end
+    end
+
+    it "queries mise once for a whole apply, not once per item" do
+      # ApplyCommand builds a fresh recipe instance per item, so without the
+      # class-level memo a 30-item plan ran `mise ls --prunable` 30 times,
+      # each resolving every tracked config.
+      with_tmp_dir do |tmp|
+        stub_mise(tmp)
+        items = recipe.enumerate([], {})
+        described_class.reset!
+        external_calls.clear
+
+        items.each { |item| described_class.new.verify(item) }
+
+        expect(external_calls.count { |argv| argv.first(3) == %w[mise ls --prunable] }).to eq(1)
+      end
+    end
+
+    it "does not claim a config now references it when the query simply failed" do
+      with_tmp_dir do |tmp|
+        stub_mise(tmp)
+        item = recipe.enumerate([], {}).first
+
+        described_class.reset!
+        stub_external("mise", "ls", "--prunable", stdout: "", stderr: "mise ERROR\n", exitstatus: 1)
+
+        expect(recipe.verify(item)).to eq([:skip, "mise ls --prunable could not be read"])
       end
     end
 

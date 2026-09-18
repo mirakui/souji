@@ -50,7 +50,7 @@ module Souji
         reclaimable = Souji::External::HumanSize.parse(row["Reclaimable"])
         return [] if reclaimable.nil? || reclaimable.zero?
 
-        note_vm
+        Souji::External::Docker.note_vm(progress)
         [build_item(row, reclaimable, params[:unused_for_days])]
       end
 
@@ -71,11 +71,6 @@ module Souji
 
       private
 
-      def note_vm
-        note = Souji::External::Docker.vm_note
-        progress.note(note) if note
-      end
-
       def build_cache_row
         progress.scanning("docker build cache")
         Souji::External::Command.json_lines(
@@ -84,20 +79,36 @@ module Souji
         ).find { |row| row["Type"] == BUILD_CACHE_TYPE }
       end
 
+      # `docker system df` reports what an unfiltered prune frees. With
+      # `unused_for_days:` the prune frees only the subset unused that
+      # long, which docker cannot tell us in advance -- so the figure
+      # becomes an upper bound rather than a claim. Reporting it as
+      # `size_bytes` would promise 8.7 GB and free nothing on a host whose
+      # cache was all touched this week.
       def build_item(row, reclaimable, unused_for_days)
+        filtered = !unused_for_days.nil?
         delegated_item(
           recipe: "docker-build-cache",
           key: "prune",
           argv: prune_argv(unused_for_days),
-          reason: reason_for(row),
-          size_bytes: reclaimable,
-          size_basis: "docker system df: the Build Cache row's Reclaimable",
+          reason: reason_for(row, unused_for_days),
+          size_bytes: (reclaimable unless filtered),
+          upper_bound_bytes: (reclaimable if filtered),
+          size_basis: size_basis_for(filtered, unused_for_days),
           extra: {
             "record_count" => Integer(row["TotalCount"], exception: false),
             "total_bytes" => Souji::External::HumanSize.parse(row["Size"]),
             "unused_for_days" => unused_for_days
           }.merge(Souji::External::Docker.item_metadata)
         )
+      end
+
+      def size_basis_for(filtered, unused_for_days)
+        basis = "docker system df: the Build Cache row's Reclaimable"
+        return basis unless filtered
+
+        "#{basis} (an upper bound: --filter unused-for=#{unused_for_days.to_i * 24}h " \
+          "frees only the subset unused that long, which docker cannot report in advance)"
       end
 
       # Never -a: that would discard cache still in use.
@@ -108,8 +119,11 @@ module Souji
         argv + ["--filter", "unused-for=#{unused_for_days.to_i * 24}h"]
       end
 
-      def reason_for(row)
-        "#{row["TotalCount"]} buildkit cache records, of which #{row["Reclaimable"]} is reclaimable"
+      def reason_for(row, unused_for_days)
+        base = "#{row["TotalCount"]} buildkit cache records, of which #{row["Reclaimable"]} is reclaimable"
+        return base unless unused_for_days
+
+        "#{base}; only the records unused for #{unused_for_days} days are pruned"
       end
     end
   end

@@ -62,8 +62,11 @@ RSpec.describe Souji::Commands::ApplyPrompt do
   end
 
   it "names the recipes whose items sit outside the target roots" do
-    output = render(item("uv-cache", "uv-cache://prune"),
-                    item("docker-image", "docker-image://sha256:a", size_bytes: 10),
+    # Read from the items' own scope_free metadata, not from the shape of
+    # their paths, so the fact is only true in one place.
+    output = render(item("uv-cache", "uv-cache://prune", metadata: { "scope_free" => true }),
+                    item("docker-image", "docker-image://sha256:a", size_bytes: 10,
+                                                                    metadata: { "scope_free" => true }),
                     item("node-modules", "/tmp/a", size_bytes: 10))
 
     expect(output).to include(
@@ -72,9 +75,16 @@ RSpec.describe Souji::Commands::ApplyPrompt do
   end
 
   it "uses the singular for a single out-of-scope item" do
-    output = render(item("uv-cache", "uv-cache://prune", size_bytes: 10))
+    output = render(item("uv-cache", "uv-cache://prune", size_bytes: 10,
+                                                         metadata: { "scope_free" => true }))
 
     expect(output).to include("1 item sit")
+  end
+
+  it "says nothing about scope for an item that does not claim to be scope-free" do
+    output = render(item("uv-cache", "uv-cache://prune", size_bytes: 10))
+
+    expect(output).not_to include("outside your target roots")
   end
 
   it "lists recipes alphabetically with their counts" do

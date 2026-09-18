@@ -97,16 +97,24 @@ module Souji
     # - An item flagged `host_space_unaffected` frees space inside a VM
     #   disk image that does not shrink, so the host's `df` will not move.
     #   Those bytes are real, but not here, and they go to `vm_bytes`.
+    #
+    # Items flagged `scope_free` are counted too: they sit outside the
+    # plan's `target_roots`, which the confirmation prompt has to say. That
+    # fact is read from the item's own metadata rather than re-derived from
+    # the shape of its path, so there is one place it can be wrong.
     def summary
       buckets = Hash.new { |h, k| h[k] = { count: 0, bytes: 0, unsized: 0, upper_bound: 0, vm_bytes: 0 } }
       totals = { count: 0, bytes: 0, unsized: 0, upper_bound: 0, vm_bytes: 0 }
       @items.each { |item| accumulate(item, buckets[item.recipe], totals) }
+      scope_free = @items.select { |item| item.metadata["scope_free"] == true }
       {
         total_count: totals[:count],
         total_bytes: totals[:bytes],
         unsized_count: totals[:unsized],
         upper_bound_bytes: totals[:upper_bound],
         vm_bytes: totals[:vm_bytes],
+        scope_free_count: scope_free.size,
+        scope_free_recipes: scope_free.map(&:recipe).uniq.sort,
         by_recipe: buckets
       }
     end

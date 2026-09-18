@@ -43,7 +43,7 @@ module Souji
       TERMINAL_STATES = %w[exited created dead].freeze
 
       def enumerate(_target_roots, params)
-        note_vm
+        Souji::External::Docker.note_vm(progress)
         terminal_containers
           .select { |container| matches_age_filter?(container, params[:older_than_days]) }
           .sort_by { |container| container[:id] }
@@ -52,9 +52,15 @@ module Souji
 
       def verify(plan_item)
         id = plan_item.metadata["container_id"]
-        state = Souji::External::Command.capture("docker", "container", "inspect",
-                                                 "--format", "{{.State.Status}}", id)
-        return [:skip, "container no longer present"] unless state
+        result = Souji::External::Command.run("docker", "container", "inspect",
+                                              "--format", "{{.State.Status}}", id)
+        # A stopped daemon or a timed-out inspect is not the same fact as
+        # "the container is gone", and reporting it as such would put
+        # something souji did not observe into the action log.
+        return [:skip, "docker container inspect timed out"] if result.timed_out
+        return [:skip, container_absence_reason(result)] unless result.success?
+
+        state = result.stdout.strip
         return [:skip, "container is now #{state}"] unless TERMINAL_STATES.include?(state)
 
         :ok
@@ -73,16 +79,34 @@ module Souji
 
       private
 
-      def note_vm
-        note = Souji::External::Docker.vm_note
-        progress.note(note) if note
-      end
-
+      # `docker ps --size` makes the daemon compute every container's
+      # writable-layer diff, which is the same kind of tree walk
+      # `docker system df` gets the slow budget for. Under the default
+      # probe timeout a busy host would silently yield an empty plan.
       def terminal_containers
         progress.scanning("docker containers (#{TERMINAL_STATES.join(", ")})")
-        Souji::External::Command.json_lines(*list_argv)
+        result = Souji::External::Command.run(*list_argv,
+                                              timeout: Souji::External::Command::SLOW_PROBE_TIMEOUT)
+        return note_failed_probe(result) unless result.success?
+
+        Souji::External::Command.parse_json_lines(result.stdout)
                                 .select { |obj| TERMINAL_STATES.include?(obj["State"]) }
                                 .map { |obj| parse_container(obj) }
+      end
+
+      # An empty result and a failed probe look identical in a plan, so the
+      # difference goes on stderr rather than being swallowed.
+      def note_failed_probe(result)
+        reason = result.timed_out ? "timed out" : "failed: #{result.stderr.strip}"
+        progress.note("docker ps #{reason}; proposing no containers")
+        []
+      end
+
+      def container_absence_reason(result)
+        stderr = result.stderr.to_s
+        return "docker is not answering: #{stderr.strip}" unless stderr.empty? || stderr.match?(/[Nn]o such/)
+
+        "container no longer present"
       end
 
       def list_argv
@@ -131,9 +155,7 @@ module Souji
       # is shared with the image. Reading the wrong one overstates a
       # typical stopped container by a factor of several hundred.
       def parse_sizes(text)
-        writable = Souji::External::HumanSize.parse(text)
-        virtual = text.to_s[/virtual\s+([0-9.]+\s*[KMGT]?B)/i, 1]
-        [writable, virtual && Souji::External::HumanSize.parse(virtual)]
+        Souji::External::HumanSize.parse_all(text).first(2)
       end
 
       def reason_for(container, virtual)

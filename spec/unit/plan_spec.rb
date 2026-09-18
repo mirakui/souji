@@ -163,6 +163,26 @@ RSpec.describe Souji::Plan do
         expect(summary[:upper_bound_bytes]).to eq(0)
       end
 
+      it "counts the items that claim to sit outside the target roots" do
+        plan = plan_with(
+          item("uv-cache", "uv-cache://prune", metadata: { "scope_free" => true }),
+          item("docker-image", "docker-image://sha256:a", size_bytes: 1,
+                                                          metadata: { "scope_free" => true }),
+          item("node-modules", "/tmp/n", size_bytes: 1)
+        )
+
+        summary = plan.summary
+
+        expect(summary[:scope_free_count]).to eq(2)
+        expect(summary[:scope_free_recipes]).to eq(%w[docker-image uv-cache])
+      end
+
+      it "does not infer scope-freedom from the shape of a path" do
+        plan = plan_with(item("uv-cache", "uv-cache://prune", size_bytes: 1))
+
+        expect(plan.summary[:scope_free_count]).to eq(0)
+      end
+
       it "keeps bytes freed inside a VM out of the host total" do
         # Pruning inside a Lima or Docker Desktop VM does not shrink the
         # VM's disk image, so the user's df will not move.

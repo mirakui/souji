@@ -3,6 +3,18 @@
 require "souji/external/human_size"
 
 RSpec.describe Souji::External::HumanSize do
+  describe ".parse_all" do
+    it "returns every size in order, which is how the container form is read" do
+      expect(described_class.parse_all("625kB (virtual 45.7MB)")).to eq([625_000, 45_700_000])
+      expect(described_class.parse_all("0B (virtual 474MB)")).to eq([0, 474_000_000])
+    end
+
+    it "returns an empty array when there is nothing to read" do
+      expect(described_class.parse_all("N/A")).to eq([])
+      expect(described_class.parse_all(nil)).to eq([])
+    end
+  end
+
   describe ".parse" do
     it "reads docker's SI units" do
       # docker prints decimal units: kB is 1000, not 1024. Treating them

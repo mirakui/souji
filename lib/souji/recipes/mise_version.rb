@@ -44,12 +44,34 @@ module Souji
           .map { |entry| build_item(entry) }
       end
 
+      # Memoized on the class, mirroring External::Docker.info, because
+      # ApplyCommand builds a fresh recipe instance per item: without this a
+      # plan with 30 versions ran `mise ls --prunable` 30 times, each
+      # resolving every tracked config. Memoizing the map rather than
+      # querying per tool also keeps one consistent view of "prunable"
+      # across a single apply.
+      class << self
+        def prunable_map
+          return @prunable_map if defined?(@prunable_map)
+
+          @prunable_map = Souji::External::Command.json("mise", "ls", "--prunable", "--json")
+        end
+
+        def reset!
+          remove_instance_variable(:@prunable_map) if defined?(@prunable_map)
+        end
+      end
+
       def verify(plan_item)
         shared = verify_tool_and_cache_dir(plan_item)
         return shared unless shared == :ok
 
         tool = plan_item.metadata["tool"]
         version = plan_item.metadata["version"]
+        # A failed or timed-out query is not the same fact as "a config now
+        # references it". Skipping is still the safe direction, but the log
+        # must not assert something souji did not observe.
+        return [:skip, "mise ls --prunable could not be read"] if self.class.prunable_map.nil?
         return :ok if still_prunable?(tool, version)
 
         [:skip, "#{tool}@#{version} is no longer prunable (a tracked config now references it)"]
@@ -71,7 +93,7 @@ module Souji
       # External::Command.capture returns stdout only.
       def prunable_map
         progress.scanning("mise prunable versions")
-        Souji::External::Command.json("mise", "ls", "--prunable", "--json") || {}
+        self.class.prunable_map || {}
       end
 
       def prunable_versions(map = prunable_map)
@@ -90,7 +112,8 @@ module Souji
       end
 
       def still_prunable?(tool, version)
-        prunable_versions.any? { |entry| entry[:tool] == tool && entry[:version] == version }
+        prunable_versions(self.class.prunable_map || {})
+          .any? { |entry| entry[:tool] == tool && entry[:version] == version }
       end
 
       def build_item(entry)
