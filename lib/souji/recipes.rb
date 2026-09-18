@@ -13,9 +13,10 @@ module Souji
   module Recipes
     autoload :GitWorktree,        "souji/recipes/git_worktree"
     autoload :TerraformProvider,  "souji/recipes/terraform_provider"
+    autoload :TerraformDir,       "souji/recipes/terraform_dir"
     autoload :DockerImage,        "souji/recipes/docker_image"
 
-    BUILTIN_NAMES = %w[git-worktree terraform-provider docker-image].freeze
+    BUILTIN_NAMES = %w[git-worktree terraform-provider terraform-dir docker-image].freeze
 
     module_function
 

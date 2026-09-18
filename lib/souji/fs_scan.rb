@@ -122,7 +122,7 @@ module Souji
       ((now - time) / SECONDS_PER_DAY).floor
     end
 
-    # --- internals -----------------------------------------------------
+    # --- smaller shared pieces, also useful on their own ---------------
 
     def child_dirs(dir, skip_set)
       children(dir).filter_map do |name|

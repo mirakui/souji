@@ -39,6 +39,15 @@ Metrics/BlockLength:
 Metrics/MethodLength:
   Max: 30
 
+# Keyword arguments do not carry the readability cost this cop exists to
+# catch: they are named at every call site and order-independent. Every
+# place souji has hit this cop is a constructor or a fixture builder whose
+# parameters are all keywords (Plan, PlanItem, ActionLog#record), and three
+# inline disables for the same reason is a configuration decision wearing a
+# disguise.
+Metrics/ParameterLists:
+  CountKeywordArgs: false
+
 Metrics/AbcSize:
   Max: 35
 

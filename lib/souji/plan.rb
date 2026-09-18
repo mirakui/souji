@@ -22,7 +22,7 @@ module Souji
                 :scenario_path, :scenario_content_sha256,
                 :target_roots, :items
 
-    def initialize(souji_plan_version:, souji_version:, generated_at:, # rubocop:disable Metrics/ParameterLists
+    def initialize(souji_plan_version:, souji_version:, generated_at:,
                    scenario_path:, scenario_content_sha256:,
                    target_roots:, items:)
       @souji_plan_version = souji_plan_version
