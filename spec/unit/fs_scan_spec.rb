@@ -133,6 +133,36 @@ RSpec.describe Souji::FsScan do
       end
     end
 
+    # dir_size walks with no skip list at all, and a legacy npm tree can
+    # nest node_modules past PATH_MAX -- confirmed on this Mac at depth 40
+    # (a 1424-byte absolute path), where lstat raises ENAMETOOLONG.
+    # Find.find(ignore_error: true) used to swallow it; an explicit walk
+    # raises it out of the middle of a plan. Stubbed rather than built for
+    # real, because such a tree cannot be removed by FileUtils afterwards.
+    it "keeps going past an entry whose path is too long for the filesystem" do
+      with_tmp_dir do |tmp|
+        File.write(File.join(tmp, "readable"), "x" * 7)
+        overlong = File.join(tmp, "overlong")
+        File.write(overlong, "y" * 99)
+        allow(File).to receive(:lstat).and_call_original
+        allow(File).to receive(:lstat).with(overlong).and_raise(Errno::ENAMETOOLONG)
+
+        expect { described_class.dir_size(tmp) }.not_to raise_error
+        expect(described_class.dir_size(tmp)).to eq(7)
+      end
+    end
+
+    it "keeps walking past a directory the filesystem rejects as invalid" do
+      with_tmp_dir do |tmp|
+        File.write(File.join(tmp, "readable"), "x" * 5)
+        allow(Dir).to receive(:children).and_call_original
+        allow(Dir).to receive(:children).with(File.join(tmp, "bad")).and_raise(Errno::EINVAL)
+        Dir.mkdir(File.join(tmp, "bad"))
+
+        expect(described_class.dir_size(tmp)).to eq(5)
+      end
+    end
+
     it "returns zero for a missing path" do
       with_tmp_dir do |tmp|
         expect(described_class.dir_size(File.join(tmp, "nope"))).to eq(0)

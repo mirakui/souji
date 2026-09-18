@@ -73,6 +73,36 @@ RSpec.describe Souji::Recipes::TerraformProvider do
       end
     end
 
+    it "still finds a lockfile under a directory that merely looks like build output" do
+      with_tmp_dir do |dir|
+        # A real terraform root can live at src/build/infra/. Skipping
+        # `build` to save walk time would hide its lockfile, and a
+        # reference souji fails to see WIDENS what it proposes deleting.
+        cache_root = File.join(dir, "plugin-cache")
+        target_dir = File.join(dir, "work")
+        %w[build dist target vendor coverage].each do |name|
+          write_lockfile(File.join(target_dir, "src", name, "infra"),
+                         provider: name, version: "5.0.0")
+          make_cache_entry(cache_root: cache_root, namespace: "hashicorp",
+                           provider: name, version: "5.0.0")
+        end
+
+        expect(recipe.enumerate([target_dir], plugin_cache_dir: cache_root)).to eq([])
+      end
+    end
+
+    it "reads a cache directory whose path contains glob metacharacters" do
+      with_tmp_dir do |dir|
+        cache_root = File.join(dir, "cache[1]")
+        target_dir = File.join(dir, "work")
+        write_lockfile(target_dir, provider: "aws", version: "4.55.0")
+        entry = make_cache_entry(cache_root: cache_root, namespace: "hashicorp",
+                                 provider: "aws", version: "4.50.0")
+
+        expect(recipe.enumerate([target_dir], plugin_cache_dir: cache_root).map(&:path)).to eq([entry])
+      end
+    end
+
     it "ignores lockfiles vendored inside dependency trees" do
       with_tmp_dir do |dir|
         cache_root  = File.join(dir, "plugin-cache")

@@ -64,7 +64,17 @@ module Souji
         return false unless Souji::FsScan.directory_no_follow?(@path)
         return false unless File.file?(config_path)
 
-        INTERPRETERS.any? { |relative| File.exist?(File.join(@path, relative)) }
+        INTERPRETERS.any? { |relative| interpreter_present?(File.join(@path, relative)) }
+      end
+
+      # `python -m venv` and `uv venv` both create `bin/python` as a symlink
+      # into the base interpreter. Once that interpreter is upgraded away
+      # the link dangles and `File.exist?` -- which follows symlinks --
+      # says no. That would make `venv?` reject precisely the venv
+      # `broken_interpreter?` exists to describe, and would send the walk
+      # down through all of site-packages looking for one.
+      def interpreter_present?(path)
+        File.symlink?(path) || File.exist?(path)
       end
 
       # [basename, kind, rebuild command] or nil.
@@ -101,12 +111,19 @@ module Souji
         !home.nil? && !Souji::FsScan.directory_no_follow?(home)
       end
 
-      # Never propose the virtualenv souji is running inside. Cheap, and
-      # it rules out the single most embarrassing failure mode.
+      # Never propose the virtualenv souji is running inside. Compared by
+      # realpath rather than expand_path: a target root reached through a
+      # symlink (`~/work` -> `/Volumes/dev/work`) yields a different
+      # string for the same directory, and the shell's VIRTUAL_ENV is
+      # whichever spelling the user happened to cd through. Comparing the
+      # spellings would let souji trash the venv it is running in.
       def active?
+        mine = real_path(@path)
         %w[VIRTUAL_ENV CONDA_PREFIX].any? do |var|
           value = ENV.fetch(var, nil)
-          value && !value.empty? && File.expand_path(value) == @path
+          next false if value.nil? || value.empty?
+
+          real_path(value) == mine
         end
       end
 
@@ -131,10 +148,13 @@ module Souji
 
       private
 
+      # Globbed relative to `base:` rather than by interpolating @path into
+      # the pattern: a venv under a directory containing `[`, `]`, `{`,
+      # `}`, `*` or `?` would otherwise match nothing, and the age gate
+      # would silently fall back to `bin/`'s mtime -- which is older than
+      # site-packages, so a freshly installed venv could be proposed.
       def install_signals
-        site_packages = Dir.glob(File.join(@path, "lib", "python*", "site-packages"))
-                           .map { |abs| abs.delete_prefix("#{@path}/") }
-                           .sort
+        site_packages = Dir.glob(File.join("lib", "python*", "site-packages"), base: @path).sort
         site_packages + [File.join("lib", "site-packages"), "bin", "Scripts", CONFIG]
       end
 
@@ -143,6 +163,12 @@ module Souji
       # `venv?` has already established the file exists.
       def config
         @config ||= parse_config
+      end
+
+      def real_path(path)
+        File.realpath(path)
+      rescue SystemCallError
+        File.expand_path(path)
       end
 
       def parse_config

@@ -91,12 +91,21 @@ three recipes gate on the artifact:
 
 | Recipe | Signal |
 |---|---|
-| `terraform-dir` | `.terraform/terraform.tfstate`, `providers/`, `modules/modules.json` |
+| `terraform-dir` | `.terraform/terraform.tfstate`, `providers/`, `modules/modules.json`, `.terraform.lock.hcl` |
 | `node-modules` | the install receipt: `.modules.yaml`, `.pnpm-workspace-state.json`, `.package-lock.json`, `.yarn-integrity`, `.bin`, then the directory's own mtime |
 | `python-venv` | `lib/python*/site-packages`, then `bin`/`Scripts`, then `pyvenv.cfg` |
 
 Project activity is recorded as `project_at` so a reviewer can see both, and
 never gates.
+
+Two refinements the first implementation needed. `.terraform.lock.hcl` is part
+of `init_at` because a directory's mtime only moves when a *direct* child
+changes, and terraform writes provider upgrades four levels below
+`providers/` — so on a root with no cached backend stub and no modules the
+signal would have sat at first-init time forever. And because items are
+verified one at a time while `#delete` removes the very entries `init_at`
+reads, the plan-time timestamp is recorded in metadata and stands in once the
+live signals are gone; a genuine re-init recreates them and is still caught.
 
 Two candidate signals were considered and rejected for `node-modules`. The
 directory's own mtime is unreliable in both directions, so it is kept only as
@@ -123,6 +132,22 @@ strictness costs nothing here.
 
 `node-modules` additionally requires that `package.json` *parses*: a manifest
 souji cannot read is a reinstall souji cannot promise.
+
+### D4a. `#verify` derives everything from the item's own path
+
+`souji apply` reads the plan as gospel, and nothing in `Plan.load_yaml`,
+`PlanItem` or `ApplyCommand` ties an item's `path` to the `metadata` beside
+it. So a re-check that trusts the metadata is not a re-check at all: a plan
+whose path was edited to `.terraform/environment` while its metadata still
+said `entry: providers` passed every guard and trashed the selected
+workspace.
+
+Every re-check therefore starts from `plan_item.path` — the thing `#delete`
+will act on — and rebuilds the ecosystem object from it. `terraform-dir`
+additionally requires the path's parent to *be* a `.terraform` directory and
+the path to be one of that root's `deletable_entries`; `node-modules`
+requires the basename to be `node_modules`. `python-venv` already worked this
+way, because `Venv#venv?` re-establishes what the directory is.
 
 ### D4. Safety rules live in an object shared by plan and apply
 
@@ -203,6 +228,14 @@ age arithmetic, and each has an edge that is not obvious:
   it against `terraform-provider`.
 - Each recipe passes a `skip:` list with **its own target removed**, which is
   also why one shared walk across recipes is impossible.
+- The skip list holds only names that cannot contain a project root of the
+  user's own — version-control internals, dependency trees, generated caches.
+  Names that merely *usually* hold build output (`build`, `dist`, `target`,
+  `vendor`, `coverage`) were in it at first and had to come out: a real
+  terraform root can live at `src/build/infra/`, and skipping it hid that
+  root's `.terraform.lock.hcl` from `terraform-provider`'s reference scan.
+  **A reference souji fails to see widens the set it proposes deleting**, so
+  this list may only ever cost time, never accuracy.
 
 Migrating `TerraformProvider#collect_referenced` onto it fixed a real bug: it
 walked with a bare `Find.find` and **no pruning at all**, descending into

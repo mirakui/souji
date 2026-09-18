@@ -93,12 +93,16 @@ module Souji
         refs
       end
 
+      # Globbed relative to `base:`: a cache directory whose path contains
+      # a glob metacharacter would otherwise match nothing and the cache
+      # would silently look empty.
       def collect_cache_entries(plugin_cache_dir)
         entries = []
-        Dir.glob(File.join(plugin_cache_dir, "*", "*", "*", "*", "*")).each do |path|
+        Dir.glob(File.join("*", "*", "*", "*", "*"), base: plugin_cache_dir).each do |relative|
+          path = File.join(plugin_cache_dir, relative)
           next unless File.directory?(path)
 
-          rel = path.delete_prefix("#{plugin_cache_dir}/").split("/")
+          rel = relative.split("/")
           next unless rel.size == 5
 
           hostname, namespace, provider, version, _os_arch = rel

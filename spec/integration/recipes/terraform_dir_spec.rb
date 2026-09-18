@@ -122,7 +122,8 @@ RSpec.describe Souji::Recipes::TerraformDir do
       with_tmp_dir do |tmp|
         root = make_terraform_root(File.join(tmp, "infra"))
         plan = write_saved_plan(root)
-        backdate(plan, File.join(root, ".terraform", "providers"), days: 120)
+        backdate_terraform_init(root, days: 120)
+        backdate(plan, days: 120)
 
         expect(recipe.enumerate([tmp], older_than_days: 90).map { |i| i.metadata["entry"] })
           .to eq(%w[providers])
@@ -148,7 +149,7 @@ RSpec.describe Souji::Recipes::TerraformDir do
       it "proposes an entry whose last init is old enough" do
         with_tmp_dir do |tmp|
           root = make_terraform_root(File.join(tmp, "infra"))
-          backdate(File.join(root, ".terraform", "providers"), days: 200)
+          backdate_terraform_init(root, days: 200)
 
           items = recipe.enumerate([tmp], older_than_days: 90)
 
@@ -166,13 +167,30 @@ RSpec.describe Souji::Recipes::TerraformDir do
         end
       end
 
+      it "notices a provider upgrade written deep under providers/" do
+        with_tmp_dir do |tmp|
+          # A directory's mtime only moves when a direct child changes, and
+          # terraform writes upgrades four levels below providers/. The
+          # lockfile is the signal that always moves.
+          root = make_terraform_root(File.join(tmp, "infra"))
+          backdate_terraform_init(root, days: 200)
+          deep = File.join(root, ".terraform", "providers", "registry.terraform.io",
+                           "hashicorp", "aws", "6.0.0", "darwin_arm64")
+          FileUtils.mkdir_p(deep)
+          File.write(File.join(deep, "terraform-provider-aws"), "x")
+          write_terraform_lockfile(root, version: "6.0.0")
+
+          expect(recipe.enumerate([tmp], older_than_days: 90)).to eq([])
+        end
+      end
+
       it "gates on the artifact's own generation time, not on project source activity" do
         with_tmp_dir do |tmp|
           # The real-world case this exists for: configuration edited today,
           # provider cache from last year. Gating on source activity would
           # skip exactly the biggest win.
           root = make_terraform_root(File.join(tmp, "infra"))
-          backdate(File.join(root, ".terraform", "providers"), days: 300)
+          backdate_terraform_init(root, days: 300)
           File.write(File.join(root, "main.tf"), "# edited just now\n")
 
           expect(recipe.enumerate([tmp], older_than_days: 90).map { |i| i.metadata["entry"] })
@@ -233,18 +251,68 @@ RSpec.describe Souji::Recipes::TerraformDir do
       end
     end
 
-    it "refuses a hand-edited plan that names a preserved entry" do
-      with_tmp_dir do |tmp|
-        make_terraform_root(File.join(tmp, "infra"), workspace: "prd")
-        item = item_for(tmp)
-        tampered = Souji::PlanItem.new(
-          id: item.id, recipe: item.recipe,
-          path: File.join(File.dirname(item.path), "environment"),
-          reason: item.reason, size_bytes: nil,
-          metadata: item.metadata.merge("entry" => "environment")
-        )
+    # Every re-check is derived from the path #delete will trash, never
+    # from the metadata beside it: nothing in Plan.load_yaml or PlanItem
+    # ties the two together, so a hand-edited plan must be caught by the
+    # path alone.
+    describe "a hand-edited plan" do
+      def repoint(item, to)
+        Souji::PlanItem.new(id: item.id, recipe: item.recipe, path: to,
+                            reason: item.reason, size_bytes: nil, metadata: item.metadata)
+      end
 
-        expect(recipe.verify(tampered)).to eq([:skip, "refusing to delete preserved terraform state"])
+      it "cannot reach a preserved entry by repointing the path alone" do
+        with_tmp_dir do |tmp|
+          # Both preserved entries have to exist for the guard to be the
+          # thing under test rather than the existence check.
+          root = make_terraform_root(File.join(tmp, "infra"), workspace: "prd", backend: "s3")
+          item = item_for(tmp)
+
+          %w[environment terraform.tfstate].each do |preserved|
+            tampered = repoint(item, File.join(root, ".terraform", preserved))
+            expect(recipe.verify(tampered))
+              .to eq([:skip, "refusing to delete preserved terraform state"])
+          end
+        end
+      end
+
+      it "cannot reach the lockfile or the configuration by repointing the path" do
+        with_tmp_dir do |tmp|
+          root = make_terraform_root(File.join(tmp, "infra"))
+          item = item_for(tmp)
+
+          [".terraform.lock.hcl", "main.tf"].each do |sibling|
+            expect(recipe.verify(repoint(item, File.join(root, sibling))).last)
+              .to match(/not an entry inside a \.terraform directory/)
+          end
+        end
+      end
+
+      it "cannot reach an entry of a different terraform root" do
+        with_tmp_dir do |tmp|
+          make_terraform_root(File.join(tmp, "a"))
+          other = make_terraform_root(File.join(tmp, "b"), lockfile: false)
+          item = recipe.enumerate([File.join(tmp, "a")], {}).first
+
+          expect(recipe.verify(repoint(item, File.join(other, ".terraform", "providers"))).last)
+            .to match(/no \.terraform\.lock\.hcl/)
+        end
+      end
+    end
+
+    # Items are verified one at a time and each delete removes one of the
+    # entries init_at is read from, so a later sibling must not be skipped
+    # merely because its own siblings are already gone.
+    it "still accepts a sibling after the entries init_at reads have been deleted" do
+      with_tmp_dir do |tmp|
+        root = make_terraform_root(File.join(tmp, "infra"), entries: %w[providers modules zz-extra])
+        backdate_terraform_init(root, days: 200)
+        items = recipe.enumerate([tmp], older_than_days: 90)
+        last = items.find { |i| i.metadata["entry"] == "zz-extra" }
+
+        items.reject { |i| i.equal?(last) }.each { |i| FileUtils.remove_entry(i.path) }
+
+        expect(recipe.verify(last)).to eq(:ok)
       end
     end
 
@@ -271,10 +339,10 @@ RSpec.describe Souji::Recipes::TerraformDir do
     it "skips when the root was re-initialized after planning" do
       with_tmp_dir do |tmp|
         root = make_terraform_root(File.join(tmp, "infra"))
-        providers = File.join(root, ".terraform", "providers")
-        backdate(providers, days: 200)
+        backdate_terraform_init(root, days: 200)
         item = item_for(tmp, older_than_days: 90)
 
+        providers = File.join(root, ".terraform", "providers")
         File.utime(Time.now, Time.now, providers)
 
         expect(recipe.verify(item).last).to match(/initialized 0 days ago/)

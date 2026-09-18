@@ -97,11 +97,18 @@ module Souji
       # been proven present, so how recently you edited the configuration
       # only predicts when you will pay for a re-init -- it says nothing
       # about whether the cache is still worth keeping.
+      # A directory's mtime only moves when a direct child changes, and
+      # terraform writes provider upgrades four levels below `providers/`
+      # -- so on a root with no cached backend stub and no modules, that
+      # signal would sit at first-init time forever. `.terraform.lock.hcl`
+      # is rewritten on every version change and is the one signal that
+      # always moves, so it is folded in here.
       def init_at
         Souji::FsScan.newest_mtime([
                                      File.join(terraform_dir, "terraform.tfstate"),
                                      File.join(terraform_dir, "providers"),
-                                     File.join(terraform_dir, "modules", "modules.json")
+                                     File.join(terraform_dir, "modules", "modules.json"),
+                                     lockfile
                                    ])
       end
 
@@ -119,11 +126,16 @@ module Souji
         read_line(File.join(terraform_dir, "environment"))
       end
 
+      # Parsed defensively for the same reason as Node::Project#postinstall?:
+      # this is a file souji does not own, `backend` need not be a Hash,
+      # and a TypeError here would abort the whole plan.
       def backend_type
         raw = read_file(File.join(terraform_dir, "terraform.tfstate"))
         return nil unless raw
 
-        JSON.parse(raw).dig("backend", "type")
+        parsed = JSON.parse(raw)
+        backend = parsed.is_a?(Hash) ? parsed["backend"] : nil
+        backend["type"] if backend.is_a?(Hash)
       rescue JSON::ParserError
         nil
       end

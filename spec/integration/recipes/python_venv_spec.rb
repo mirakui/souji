@@ -160,6 +160,57 @@ RSpec.describe Souji::Recipes::PythonVenv do
       end
     end
 
+    it "reads site-packages even when the path contains glob metacharacters" do
+      with_tmp_dir do |tmp|
+        # Interpolating the path into a glob pattern makes `proj[1]` match
+        # nothing, and the age gate then falls back to bin/'s older mtime
+        # -- proposing a venv that was installed into today.
+        venv = make_python_venv(File.join(tmp, "proj[1]"))
+        backdate(File.join(venv, "bin"), File.join(venv, "pyvenv.cfg"), days: 400)
+
+        expect(recipe.enumerate([tmp], older_than_days: 30)).to eq([])
+      end
+    end
+
+    it "still recognises a venv whose base interpreter has been removed" do
+      with_tmp_dir do |tmp|
+        # `python -m venv` and `uv venv` create bin/python as a symlink into
+        # the base interpreter. Once that is upgraded away the link dangles,
+        # and File.exist? -- which follows symlinks -- would reject exactly
+        # the venv broken_interpreter? exists to describe.
+        gone = File.join(tmp, "gone", "bin", "python")
+        venv = make_python_venv(File.join(tmp, "app"), interpreter: nil,
+                                                       cfg: { "home" => File.join(tmp, "gone", "bin"),
+                                                              "version_info" => "3.14.0" })
+        FileUtils.mkdir_p(File.join(venv, "bin"))
+        File.symlink(gone, File.join(venv, "bin", "python"))
+
+        item = recipe.enumerate([tmp], {}).first
+
+        expect(item.path).to eq(venv)
+        expect(item.metadata["broken_interpreter"]).to be true
+      end
+    end
+
+    it "never proposes the active venv reached through a symlinked target root" do
+      with_tmp_dir do |tmp|
+        # The shell's VIRTUAL_ENV is whichever spelling the user cd'd
+        # through; comparing spellings rather than realpaths would let souji
+        # trash the venv it is running in.
+        real = File.join(tmp, "real")
+        FileUtils.mkdir_p(real)
+        venv = make_python_venv(File.join(real, "app"))
+        linked = File.join(tmp, "link")
+        File.symlink(real, linked)
+
+        allow(ENV).to receive(:fetch).and_call_original
+        allow(ENV).to receive(:fetch).with("VIRTUAL_ENV", nil).and_return(venv)
+        allow(ENV).to receive(:fetch).with("CONDA_PREFIX", nil).and_return(nil)
+
+        expect(recipe.enumerate([linked], {})).to eq([])
+      end
+    end
+
     it "returns the same items in the same order across runs" do
       with_tmp_dir do |tmp|
         %w[b a c].each { |name| make_python_venv(File.join(tmp, name)) }

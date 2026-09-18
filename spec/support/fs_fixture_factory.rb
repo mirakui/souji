@@ -93,6 +93,23 @@ module Souji
         paths.flatten.each { |path| File.utime(at, at, path) }
       end
 
+      # Backdate every signal Souji::Terraform::Root#init_at reads, which
+      # includes the lockfile: backdating only `.terraform/providers` would
+      # leave a root that looks freshly re-initialized.
+      def backdate_terraform_init(root, days:)
+        tf = File.join(root, ".terraform")
+        signals = [File.join(tf, "providers"), File.join(tf, "terraform.tfstate"),
+                   File.join(tf, "modules", "modules.json"), File.join(root, ".terraform.lock.hcl")]
+        backdate(signals.select { |path| File.exist?(path) }, days: days)
+      end
+
+      # Backdate every signal Souji::Node::Project#install reads.
+      def backdate_node_install(project, days:)
+        modules = File.join(project, "node_modules")
+        backdate(Dir.glob(File.join(modules, "*"), File::FNM_DOTMATCH) - %w[. ..] + [modules],
+                 days: days)
+      end
+
       private
 
       def make_terraform_entry(tf, entry)

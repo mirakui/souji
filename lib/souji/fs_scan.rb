@@ -21,15 +21,23 @@ module Souji
   #   today can still hold a provider cache from last year, and that cache
   #   is exactly what we came for.
   module FsScan
-    # Directories that hold no repository or project root worth visiting
-    # but do hold enough files to dominate a walk. Callers subtract their
-    # own target from this list -- `terraform-dir` needs to enter
-    # `.terraform`, `node-modules` needs to enter `node_modules` -- which
-    # is also why a single shared walk across recipes is not possible.
+    # Directories that cannot hold a project root of the user's own, by
+    # construction: version-control internals, dependency trees and
+    # generated caches. Callers subtract their own target from this list --
+    # `terraform-dir` needs to enter `.terraform`, `node-modules` needs to
+    # enter `node_modules` -- which is also why a single shared walk across
+    # recipes is not possible.
+    #
+    # Names that merely *usually* hold build output -- `build`, `dist`,
+    # `target`, `vendor`, `coverage` -- are deliberately absent, however
+    # much walk time they would save. A real terraform root can live at
+    # `src/build/infra/`, and skipping it would hide its
+    # `.terraform.lock.hcl` from `terraform-provider`'s reference scan.
+    # A reference souji fails to see *widens* the set it proposes
+    # deleting, so this list may only ever cost time, never accuracy.
     SKIP_DIR_NAMES = %w[
-      .git node_modules .terraform .venv venv .direnv __pycache__
-      vendor bundle dist build target coverage
-      .next .nuxt .turbo .cache .pytest_cache
+      .git node_modules .terraform .venv venv .direnv
+      __pycache__ .pytest_cache .next .nuxt .turbo
     ].freeze
 
     # Entries `newest_mtime_under` will look at before giving up.
@@ -37,7 +45,14 @@ module Souji
 
     SECONDS_PER_DAY = 86_400
 
-    WALK_ERRORS = [Errno::EACCES, Errno::ENOENT, Errno::ELOOP, Errno::ENOTDIR].freeze
+    # ENAMETOOLONG and EINVAL are here because `dir_size` walks with no
+    # skip list at all: a legacy npm tree can nest `node_modules` past
+    # PATH_MAX, and `Find.find(ignore_error: true)` used to swallow that
+    # where an explicit walk raises it out of the middle of a plan.
+    WALK_ERRORS = [
+      Errno::EACCES, Errno::ENOENT, Errno::ELOOP, Errno::ENOTDIR,
+      Errno::ENAMETOOLONG, Errno::EINVAL
+    ].freeze
 
     module_function
 

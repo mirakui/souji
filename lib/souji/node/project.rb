@@ -73,8 +73,13 @@ module Souji
       # its patches on install and a native build only costs time, so
       # skipping on them would be wrong. They are recorded so a reviewer
       # knows the reinstall will be slow.
+      # `scripts` is whatever the file says, not necessarily a Hash, and
+      # `dig` raises TypeError on a String or an Array. Nothing between
+      # here and PlanCommand rescues that, so one malformed package.json
+      # would abort the whole plan for every recipe.
       def postinstall?
-        !manifest&.dig("scripts", "postinstall").nil?
+        scripts = manifest&.fetch("scripts", nil)
+        scripts.is_a?(Hash) && !scripts["postinstall"].nil?
       end
 
       def patches?
