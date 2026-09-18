@@ -4,11 +4,12 @@ require_relative "souji/version"
 require_relative "souji/errors"
 
 module Souji
-  # Top-level namespace. Submodules (Paths, PlanItem, Plan, Progress, Recipe,
+  # Top-level namespace. Submodules (Paths, FsScan, PlanItem, Plan, Progress, Recipe,
   # Recipes, DSL, Scenario, Commands, ActionLog, Trash, Confirmation, CLI) are
   # autoloaded on first reference; tests can also `require "souji/<name>"`
   # explicitly when they need a specific module without pulling the rest.
   autoload :ExitCodes,    "souji/exit_codes"
+  autoload :FsScan,       "souji/fs_scan"
   autoload :Paths,        "souji/paths"
   autoload :PlanItem,     "souji/plan_item"
   autoload :Plan,         "souji/plan"

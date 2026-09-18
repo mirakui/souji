@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-require "find"
 require_relative "../recipe"
 require_relative "../plan_item"
+require_relative "../fs_scan"
 
 module Souji
   module Recipes
@@ -20,6 +20,7 @@ module Souji
       param :plugin_cache_dir,
             "Provider cache to prune (default: $TF_PLUGIN_CACHE_DIR, else ~/.terraform.d/plugin-cache)"
 
+      LOCKFILE_NAME = ".terraform.lock.hcl"
       LOCK_PROVIDER_HEADER = /\Aprovider\s+"([^"]+)"\s*\{\s*\z/
       LOCK_VERSION = /\A\s*version\s*=\s*"([^"]+)"/
 
@@ -60,18 +61,19 @@ module Souji
           File.expand_path("~/.terraform.d/plugin-cache")
       end
 
+      # Walks with the shared skip list rather than every file on the
+      # machine: a `.terraform.lock.hcl` vendored inside `node_modules` or a
+      # test fixture is not a statement about which providers this
+      # workstation depends on, and walking those trees dominated the scan.
       def collect_referenced(target_roots)
         refs = []
         target_roots.each do |root|
-          next unless Dir.exist?(root)
+          Souji::FsScan.walk_dirs(root) do |dir|
+            lockfile = File.join(dir, LOCKFILE_NAME)
+            next unless File.file?(lockfile)
 
-          Find.find(root) do |path|
-            next unless File.file?(path) && File.basename(path) == ".terraform.lock.hcl"
-
-            progress.scanning(path)
-            refs.concat(parse_lockfile(path))
-          rescue Errno::EACCES, Errno::ENOENT
-            next
+            progress.scanning(lockfile)
+            refs.concat(parse_lockfile(lockfile))
           end
         end
         refs.to_set
@@ -117,23 +119,13 @@ module Souji
           recipe: "terraform-provider",
           path: entry[:path],
           reason: "Provider version unreferenced by any .terraform.lock.hcl under target roots",
-          size_bytes: dir_size(entry[:path]),
+          size_bytes: Souji::FsScan.dir_size(entry[:path]),
           metadata: {
             "namespace" => entry[:namespace],
             "provider" => entry[:provider],
             "version" => entry[:version]
           }
         )
-      end
-
-      def dir_size(path)
-        total = 0
-        Find.find(path) do |p|
-          total += File.size(p) if File.file?(p)
-        rescue Errno::EACCES, Errno::ENOENT
-          next
-        end
-        total
       end
     end
   end

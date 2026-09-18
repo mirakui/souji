@@ -4,6 +4,7 @@ require "psych"
 require_relative "errors"
 require_relative "plan_item"
 require_relative "version"
+require_relative "fs_scan"
 
 module Souji
   # Plan — the deliverable of `souji plan`, persisted as YAML.
@@ -128,11 +129,7 @@ module Souji
     end
 
     def under_any_root?(path)
-      normalized = File.expand_path(path)
-      @target_roots.any? do |root|
-        normalized_root = File.expand_path(root)
-        normalized == normalized_root || normalized.start_with?("#{normalized_root}/")
-      end
+      Souji::FsScan.within_any?(path, @target_roots)
     end
   end
 end
