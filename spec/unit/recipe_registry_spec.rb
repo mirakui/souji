@@ -156,6 +156,7 @@ RSpec.describe Souji::Recipe do
       expect(described_class.fetch("docker-image").param_names).to eq([:older_than_days])
       expect(described_class.fetch("terraform-provider").param_names).to eq([:plugin_cache_dir])
       expect(described_class.fetch("terraform-dir").param_names).to eq([:older_than_days])
+      expect(described_class.fetch("node-modules").param_names).to eq([:older_than_days])
     end
   end
 

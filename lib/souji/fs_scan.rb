@@ -122,6 +122,31 @@ module Souji
       ((now - time) / SECONDS_PER_DAY).floor
     end
 
+    # Resolves an `older_than_days:` threshold against an artifact's own
+    # generation time. Returns `:stale` (propose it), `:unknown` (the
+    # threshold cannot be evaluated) or `[:fresh, days]`.
+    #
+    # No threshold means no gate: souji's recipes default to proposing
+    # everything that satisfies their safety rules, and narrowing is the
+    # scenario's business. An unmeasurable timestamp under a threshold the
+    # user did ask for is a refusal rather than a pass -- a condition we
+    # cannot evaluate is not a condition we may assume.
+    #
+    # Callers word the outcome themselves, because "initialized 3 days ago"
+    # and "packages installed 3 days ago" are not interchangeable.
+    def staleness(time, older_than_days)
+      return :stale unless older_than_days
+
+      days = days_since(time)
+      return :unknown if days.nil?
+
+      days >= older_than_days ? :stale : [:fresh, days]
+    end
+
+    def days_phrase(days)
+      "#{days} #{days == 1 ? "day" : "days"}"
+    end
+
     # --- smaller shared pieces, also useful on their own ---------------
 
     def child_dirs(dir, skip_set)

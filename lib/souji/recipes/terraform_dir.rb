@@ -97,13 +97,11 @@ module Souji
       end
 
       def age_skip(root, older_than_days)
-        return nil unless older_than_days
-
-        days = Souji::FsScan.days_since(root.init_at)
-        return [:skip, "cannot tell when it was last initialized"] if days.nil?
-        return nil if days >= older_than_days
-
-        [:skip, "initialized #{in_days(days)} ago"]
+        case (verdict = Souji::FsScan.staleness(root.init_at, older_than_days))
+        when :stale then nil
+        when :unknown then [:skip, "cannot tell when it was last initialized"]
+        else [:skip, "initialized #{Souji::FsScan.days_phrase(verdict.last)} ago"]
+        end
       end
 
       def build_items(root, older_than_days)
@@ -136,13 +134,9 @@ module Souji
 
       def reason_for(entry, init_at)
         days = Souji::FsScan.days_since(init_at)
-        age = days ? "last init #{in_days(days)} ago" : "last init unknown"
+        age = days ? "last init #{Souji::FsScan.days_phrase(days)} ago" : "last init unknown"
         "#{File.basename(entry)}/ is regenerable by `terraform init` (#{age}); " \
           "provider versions stay pinned by .terraform.lock.hcl"
-      end
-
-      def in_days(days)
-        "#{days} #{days == 1 ? "day" : "days"}"
       end
 
       def iso8601(time)
