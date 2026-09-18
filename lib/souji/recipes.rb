@@ -15,9 +15,10 @@ module Souji
     autoload :TerraformProvider,  "souji/recipes/terraform_provider"
     autoload :TerraformDir,       "souji/recipes/terraform_dir"
     autoload :NodeModules,        "souji/recipes/node_modules"
+    autoload :PythonVenv,         "souji/recipes/python_venv"
     autoload :DockerImage,        "souji/recipes/docker_image"
 
-    BUILTIN_NAMES = %w[git-worktree terraform-provider terraform-dir node-modules docker-image].freeze
+    BUILTIN_NAMES = %w[git-worktree terraform-provider terraform-dir node-modules python-venv docker-image].freeze
 
     module_function
 

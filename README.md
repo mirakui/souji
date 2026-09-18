@@ -52,6 +52,9 @@ Pass `--quiet` to suppress it.
 |---|---|---|---|
 | `git-worktree` | Abandoned git worktrees: prunable ones always, merged or long-untouched ones on request | `merged:`, `merged_into:`, `fetch:`, `older_than_days:` | `git` |
 | `terraform-provider` | Terraform provider cache entries unreferenced by any `.terraform.lock.hcl` under target_roots | `plugin_cache_dir:` | (none — pure filesystem) |
+| `terraform-dir` | The regenerable contents of local `.terraform/` directories | `older_than_days:` | (none — pure filesystem) |
+| `node-modules` | Stale `node_modules/` trees a lockfiled install can rebuild | `older_than_days:` | (none — pure filesystem) |
+| `python-venv` | Stale Python virtualenvs a sibling manifest can recreate | `older_than_days:` | (none — pure filesystem) |
 | `docker-image` | Dangling docker images | `older_than_days:` | `docker` |
 
 Run `souji recipes` to see the live list with descriptions and options. Options
@@ -99,6 +102,76 @@ BatchMode=yes -o ConnectTimeout=10`) so an expired credential can never leave
 a plan hanging on a prompt, and a failed fetch just falls back to the cached
 remote-tracking ref.
 
+### Reclaiming regenerable build output
+
+`terraform-dir`, `node-modules` and `python-venv` all answer the same
+question — *can souji prove this directory can be rebuilt?* — and all three
+refuse unless the answer is yes:
+
+```ruby
+recipe "terraform-dir"                      # every .terraform/ with a lockfile
+recipe "terraform-dir", older_than_days: 90 # only the ones gone cold
+recipe "node-modules",  older_than_days: 90
+recipe "python-venv",   older_than_days: 90
+```
+
+**`terraform-dir`** deletes the *children* of a `.terraform/`, never the
+directory itself. Two of its children are not regenerable: `environment`
+holds the selected workspace, so losing it silently reverts you to `default`
+and the next `terraform apply` targets the wrong one, and `terraform.tfstate`
+there is the cached backend configuration, which under `terraform init
+-backend-config=...` is the only on-disk record of which bucket and key were
+used. Choosing a deletion unit that cannot include them dissolves the hazard
+instead of guarding against it, and a denylist rather than an allowlist means
+the recipe keeps working when terraform invents a new subdirectory.
+
+A terraform root is only proposed when it has `*.tf` files **and** a
+`.terraform.lock.hcl`. Without the lock, re-init resolves fresh provider
+versions — a behaviour change, not a slow reinstall. It is also skipped while
+an apply might be in flight: a held `.terraform.tfstate.lock.info`, a
+leftover `errored.tfstate`, or a saved plan file. A saved plan is identified
+by its zip magic rather than its name, so the `tfplan.txt` dump that often
+sits beside a real `tfplan` does not block cleanup forever.
+
+`terraform-dir` and `terraform-provider` are complementary and **order
+independent**: the provider cache's reference set comes from the
+`.terraform.lock.hcl` files, and `terraform-dir` requires one and never
+deletes one, so clearing `.terraform/providers` can never orphan a cache
+entry.
+
+**`node-modules`** requires a sibling `package.json` that parses *and* a
+sibling lockfile. An install without a lockfile re-resolves semver ranges, so
+the tree that comes back is not the tree that was deleted. Two useful
+behaviours follow from that rule rather than from special cases: a pnpm
+workspace root whose packages live elsewhere (lockfile present, manifest
+absent) is untouchable, and in a monorepo only the root holding the lockfile
+is proposed, because the package-level trees have no lockfile of their own.
+
+**`python-venv`** detects a virtualenv structurally — a PEP 405 `pyvenv.cfg`
+plus an interpreter — rather than by directory name, and requires a
+regeneration manifest (`uv.lock`, `poetry.lock`, `Pipfile.lock`,
+`requirements.txt`, `pyproject.toml`, ...) in the venv's **immediate parent**.
+It never proposes the virtualenv souji is running inside. Conda and mamba
+environments have no `pyvenv.cfg` and so never match, which is correct:
+removing one needs `conda env remove` to keep conda's index consistent. A
+venv that lives one level below its project — direnv's
+`.direnv/python-<version>/`, Pipenv's default location — has no sibling
+manifest and stays out of scope; it is the tool's to recreate.
+
+**`older_than_days:` is measured from the artifact's own generation time**,
+never from project source activity: the last `terraform init`, the package
+manager's install receipt (`.modules.yaml`, `.package-lock.json`,
+`.yarn-integrity`), the venv's `site-packages` mtime. A repository whose
+sources were edited today can still hold a provider cache from last year, and
+that cache is exactly what souji came for. Both signals are recorded in the
+plan (`init_at` / `install_at` and `project_at`) so a reviewer can see the
+difference. Omitting the option means no age filter at all.
+
+One interaction worth knowing: `git-worktree` items and these three **nest**,
+because a worktree can hold a `.terraform/` or a `node_modules/`. Declare
+`git-worktree` first; the worktree then goes to the trash as one unit and each
+nested item's re-verification reports `already removed`.
+
 ## XDG layout
 
 | Default location | Purpose | Auto-created? |
@@ -129,7 +202,13 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
   no longer qualify (e.g., a worktree that has been re-activated) are skipped
   with a reason in the action log.
 - Plan items whose path is outside the plan's `target_roots` are rejected at
-  plan load time (exit 66 before any deletion).
+  plan load time (exit 66 before any deletion). Recipes that act on
+  non-filesystem resources (`docker-image`) are the named exception: their
+  items carry a synthetic URI rather than a path, and what bounds them is the
+  tool's own notion of *unreferenced*, not your targets.
+- Symlinks are never followed: no walk descends into a symlinked directory,
+  and a symlink contributes zero to a reported size rather than the size of
+  whatever it points at.
 - Reversible deletions go through `Souji::Trash` (`trash` / `osascript` on
   macOS, `gio trash` on Linux). When no trash backend is available the tool
   warns loudly and falls back to hard-delete.
@@ -150,7 +229,7 @@ Omitting the argument means `default`: `souji plan` is `souji plan default` and
 
 ```bash
 bundle install
-bundle exec rspec           # 221 examples by default (docker/perf tag-gated)
+bundle exec rspec           # 323 examples by default (docker/perf tag-gated)
 bundle exec rubocop
 WITH_DOCKER=1 bundle exec rspec   # include docker integration tests
 gem build souji.gemspec
