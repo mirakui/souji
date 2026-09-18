@@ -181,9 +181,7 @@ module Souji
       end
 
       def read_file(path)
-        File.read(path)
-      rescue SystemCallError
-        nil
+        Souji::FsScan.read_text(path)
       end
 
       def read_line(path)

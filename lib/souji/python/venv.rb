@@ -146,14 +146,12 @@ module Souji
       end
 
       def parse_config
-        File.readlines(config_path, chomp: true).each_with_object({}) do |line, acc|
+        (Souji::FsScan.read_text(config_path) || "").lines(chomp: true).each_with_object({}) do |line, acc|
           key, _, value = line.partition("=")
           next if value.empty?
 
           acc[key.strip] = value.strip
         end
-      rescue SystemCallError
-        {}
       end
     end
   end

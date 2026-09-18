@@ -82,7 +82,7 @@ module Souji
       def parse_lockfile(path)
         refs = []
         current_address = nil
-        File.foreach(path) do |line|
+        (Souji::FsScan.read_text(path) || "").each_line do |line|
           if (m = line.match(LOCK_PROVIDER_HEADER))
             current_address = m[1]
           elsif current_address && (m = line.match(LOCK_VERSION))

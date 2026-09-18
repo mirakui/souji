@@ -124,10 +124,12 @@ module Souji
       end
 
       def parse_manifest
-        raw = File.read(package_json)
+        raw = Souji::FsScan.read_text(package_json)
+        return nil unless raw
+
         parsed = JSON.parse(raw)
         parsed.is_a?(Hash) ? parsed : nil
-      rescue SystemCallError, JSON::ParserError
+      rescue JSON::ParserError
         nil
       end
     end

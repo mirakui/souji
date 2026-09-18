@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "json"
 require "souji/fs_scan"
 
 RSpec.describe Souji::FsScan do
@@ -191,6 +192,65 @@ RSpec.describe Souji::FsScan do
       with_tmp_dir do |tmp|
         expect(described_class.newest_mtime_under(tmp, skip: [])).to eq([nil, false])
       end
+    end
+  end
+
+  describe ".read_text" do
+    # A workstation with no LANG set has Encoding.default_external =
+    # US-ASCII, and then File.read + JSON.parse on a package.json with a
+    # non-ASCII description raises Encoding::InvalidByteSequenceError while
+    # transcoding -- which aborted a whole `souji plan` run.
+    it "returns UTF-8 text regardless of the default external encoding" do
+      with_tmp_dir do |tmp|
+        path = File.join(tmp, "package.json")
+        File.binwrite(path, %({"name":"\xE5\xAF\xBF"}))
+
+        text = with_external_encoding(Encoding::US_ASCII) { described_class.read_text(path) }
+
+        expect(text.encoding).to eq(Encoding::UTF_8)
+        expect(JSON.parse(text)["name"]).to eq("寿")
+      end
+    end
+
+    it "scrubs bytes that are not valid UTF-8 rather than raising" do
+      with_tmp_dir do |tmp|
+        path = File.join(tmp, "broken.cfg")
+        File.binwrite(path, "home = /usr/\xFF\xFEbin")
+
+        text = described_class.read_text(path)
+
+        expect(text).to be_valid_encoding
+        expect(text).to start_with("home = /usr/")
+      end
+    end
+
+    it "returns nil for a file it cannot read" do
+      with_tmp_dir do |tmp|
+        expect(described_class.read_text(File.join(tmp, "missing"))).to be_nil
+      end
+    end
+  end
+
+  describe ".staleness" do
+    it "treats a missing threshold as no gate at all" do
+      expect(described_class.staleness(nil, nil)).to eq(:stale)
+      expect(described_class.staleness(Time.now, nil)).to eq(:stale)
+    end
+
+    it "refuses rather than passes when the threshold cannot be evaluated" do
+      expect(described_class.staleness(nil, 90)).to eq(:unknown)
+    end
+
+    it "reports stale at or past the threshold and fresh before it" do
+      expect(described_class.staleness(Time.now - (90 * 86_400), 90)).to eq(:stale)
+      expect(described_class.staleness(Time.now - (10 * 86_400), 90)).to eq([:fresh, 10])
+    end
+  end
+
+  describe ".days_phrase" do
+    it "pluralizes" do
+      expect(described_class.days_phrase(1)).to eq("1 day")
+      expect(described_class.days_phrase(2)).to eq("2 days")
     end
   end
 

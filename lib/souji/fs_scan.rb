@@ -147,6 +147,22 @@ module Souji
       "#{days} #{days == 1 ? "day" : "days"}"
     end
 
+    # A text file's contents as valid UTF-8, or nil if it cannot be read.
+    #
+    # Reads bytes and tags them UTF-8 rather than trusting
+    # `Encoding.default_external`, because on a machine with no LANG set
+    # that default is US-ASCII -- and then a `package.json` with a
+    # non-ASCII description makes `JSON.parse` raise
+    # Encoding::InvalidByteSequenceError while transcoding. The files these
+    # recipes read (JSON manifests, pyvenv.cfg, lockfiles) are UTF-8 by
+    # specification or convention, so tagging is right and scrubbing the
+    # remainder keeps a mojibake byte from aborting a whole plan.
+    def read_text(path)
+      File.binread(path).force_encoding(Encoding::UTF_8).scrub
+    rescue SystemCallError, IOError
+      nil
+    end
+
     # --- smaller shared pieces, also useful on their own ---------------
 
     def child_dirs(dir, skip_set)
