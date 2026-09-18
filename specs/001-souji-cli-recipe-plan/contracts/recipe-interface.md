@@ -217,3 +217,43 @@ recipe:
 2. Returns `:ok` from `verify` for items it just enumerated.
 3. Survives a plan→apply round-trip on a scratch fixture.
 4. Refuses to operate on a plan item whose path is outside scope.
+
+## `scope_free!` — declaring the exception to containment
+
+souji's headline safety promise is that nothing outside a declared
+`target_root` can be enumerated or deleted, and
+`Plan#validate_scope_containment!` enforces it. A recipe that acts on a tool's
+own store — a docker daemon, a package manager's cache — cannot honour that
+shape, and instead builds items whose `path` is a **synthetic URI**
+(`<recipe-name>://<key>`, matching `Plan::SYNTHETIC_URI_RE`).
+
+Such a recipe MUST declare `scope_free!` in its class body. The declaration is
+not decoration: it drives the `[scope-free]` marker in `souji recipes` and the
+"N items sit outside your target roots" line in the apply confirmation. Souji
+enforces the pairing at plan time — `Scenario#run_plan` raises
+`ScopeViolationError` if a recipe emits a synthetic URI without having declared
+it — so the disclosure cannot drift from what the recipe actually does.
+
+What bounds a scope-free recipe instead is the tool's own notion of
+*unreferenced*, which is not the same thing as the scenario's targets. For
+`mise-version`, for instance, it depends on which config files mise has
+tracked.
+
+## Delegated pruning
+
+A recipe that asks a tool to prune its own store, rather than deleting the
+tool's files itself, should include `Souji::External::DelegatedPrune`. The
+delegation keeps the tool's content-addressable index consistent, and costs
+three things the module records for you:
+
+- the tool decides what goes, so `size_bytes` may be unavailable — put the
+  whole-cache figure in `size_bytes_upper_bound` instead and never in
+  `size_bytes`;
+- nothing can go to the trash, because souji never holds the paths, so items
+  are marked `irreversible` and `#delete` returns `:deleted`;
+- the item records the literal `argv` its `#delete` will run, so the plan a
+  user approves reads as a script.
+
+Shell out through `Souji::External::Command`, which adds a timeout, drains
+both streams without deadlocking, closes stdin so a prompt becomes EOF, and
+never raises.

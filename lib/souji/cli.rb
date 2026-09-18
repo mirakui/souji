@@ -98,7 +98,9 @@ module Souji
       registry = Souji::Recipe.registry.sort.to_h
       width = registry.keys.map(&:length).max || 0
       registry.each do |name, klass|
-        desc = klass.description || ""
+        # The marker is part of the disclosure: a scope-free recipe is not
+        # bounded by the targets declared in the scenario.
+        desc = [("[scope-free]" if klass.scope_free?), klass.description].compact.join(" ")
         $stdout.puts(format("%-#{width}s  %s", name, desc))
         klass.params.each { |param, param_desc| $stdout.puts("#{" " * (width + 2)}  #{param}: #{param_desc}") }
       end

@@ -40,4 +40,15 @@ RSpec.describe "Recipe contract (shared expectations)" do
       expect(klass.description).to be_a(String).and(satisfy { |s| !s.empty? })
     end
   end
+
+  # A recipe whose items sit outside the target roots must say so, because
+  # `souji recipes` and the apply confirmation are built from the
+  # declaration. Souji::Scenario raises when a recipe emits a synthetic
+  # URI without it; this records which recipes take the exception today,
+  # so adding one is a deliberate edit rather than a side effect.
+  it "keeps the set of scope-free recipes small and deliberate" do
+    expect(recipes.select(&:scope_free?).map(&:recipe_name).sort)
+      .to eq(%w[brew-cache docker-build-cache docker-container docker-image go-cache
+                mise-version pnpm-store uv-cache])
+  end
 end

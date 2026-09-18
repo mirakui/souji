@@ -76,7 +76,7 @@ items:
 | `recipe` | string | yes | Registered recipe name. Apply rejects items whose recipe is unknown at apply time. |
 | `path` | string | yes | Absolute filesystem path OR a recipe-specific synthetic URI (e.g., `docker-image://<id>`). For filesystem paths, MUST be under one of `target_roots`. |
 | `reason` | string | yes | Human-readable, ≤ 200 characters. |
-| `size_bytes` | integer | no | Best-effort. Omit when not measurable. |
+| `size_bytes` | integer | no | Only a figure the recipe believes will **actually be freed on this host**. Omit when the recipe cannot say; see the reserved metadata keys below. |
 | `metadata` | mapping | no | Recipe-defined extra fields. Apply passes the whole item (including `metadata`) to `Recipe#verify` and `Recipe#delete`. |
 
 ## Encoding rules
@@ -98,8 +98,25 @@ items:
   type, or changing the meaning of an existing field IS a **breaking change**
   and DOES bump `souji_plan_version`. New Souji versions MUST be able to read
   the previous major version OR fail with a clear migration message.
-- `metadata` inside an item is recipe-private. Recipes may freely change their
-  metadata schema between Souji versions; the framework never inspects it.
+- `metadata` inside an item is recipe-private with the exception of the
+  reserved keys below. Recipes may freely change the rest of their metadata
+  schema between Souji versions; the framework never inspects it.
+
+## Reserved metadata keys
+
+`metadata` is recipe-private, except for these keys, which the framework does
+read. A recipe that sets one is making a claim the framework acts on.
+
+| Key | Type | Read by | Meaning |
+|---|---|---|---|
+| `size_bytes_upper_bound` | integer | `Plan#summary`, the apply prompt | Only meaningful when `size_bytes` is omitted: the most this item could possibly free. Reported as upside, never summed into the total. |
+| `size_basis` | string | humans reading the plan | How the figure was obtained, so the number is self-documenting. |
+| `host_space_unaffected` | boolean | `Plan#summary`, the apply prompt | The bytes are freed somewhere the host's `df` will not show — inside a docker VM's disk image. Excluded from the host total and reported on their own line. |
+| `irreversible` | boolean | humans reading the plan | Deletion does not go through the trash and cannot be undone. |
+| `scope_free` | boolean | humans reading the plan | The item is not under any `target_root`; see `recipe-interface.md`. |
+| `argv` | sequence of strings | the recipe's own `#delete` | The literal command the deletion will run, so the plan reads as a reviewable script. |
+| `command` | string | the recipe's own `#verify` | The executable whose presence on PATH is re-checked. |
+| `cache_dir` | string | the recipe's own `#verify` | The directory whose existence is re-checked. |
 
 ## Validation rules (applied at apply-time load)
 

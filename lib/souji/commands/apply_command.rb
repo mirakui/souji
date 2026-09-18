@@ -6,6 +6,7 @@ require_relative "../errors"
 require_relative "../exit_codes"
 require_relative "../paths"
 require_relative "../plan"
+require_relative "apply_prompt"
 require_relative "../recipe"
 require_relative "../recipes"
 
@@ -63,22 +64,11 @@ module Souji
       end
 
       def confirm(plan, plan_path, yes:, dry_run:)
-        @stdout.puts(format_prompt_header(plan, plan_path))
+        @stdout.puts(ApplyPrompt.new(plan, plan_path).to_s)
         Confirmation.ask(
           prompt: "Proceed?",
           stdin: @stdin, stdout: @stdout, yes: yes, dry_run: dry_run
         )
-      end
-
-      def format_prompt_header(plan, plan_path)
-        summary = plan.summary
-        lines = ["Souji plan: #{plan_path}"]
-        bytes_h = humanize_bytes(summary[:total_bytes])
-        lines << "About to delete #{summary[:total_count]} items (estimated #{bytes_h}):"
-        summary[:by_recipe].sort_by { |k, _| k }.each do |recipe, info|
-          lines << format("  - %-22<recipe>s %<count>d items", recipe: "#{recipe}:", count: info[:count])
-        end
-        lines.join("\n")
       end
 
       def execute(plan, plan_path, dry_run:, log_file:, no_log_file:)
@@ -153,19 +143,6 @@ module Souji
 
       def elapsed_ms(started)
         ((Time.now - started) * 1000).to_i
-      end
-
-      def humanize_bytes(bytes)
-        return "0 B" if bytes.zero?
-
-        units = %w[B KB MB GB TB]
-        value = bytes.to_f
-        idx = 0
-        while value >= 1024 && idx < units.size - 1
-          value /= 1024
-          idx += 1
-        end
-        format("%<value>.1f %<unit>s", value: value, unit: units[idx])
       end
 
       def usage_error(message)

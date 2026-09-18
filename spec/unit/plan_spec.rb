@@ -117,6 +117,87 @@ RSpec.describe Souji::Plan do
       summary = plan.summary
       expect(summary[:total_count]).to eq(0)
       expect(summary[:total_bytes]).to eq(0)
+      expect(summary[:unsized_count]).to eq(0)
+      expect(summary[:upper_bound_bytes]).to eq(0)
+      expect(summary[:vm_bytes]).to eq(0)
+    end
+
+    # size_bytes means "souji believes this much will actually be freed on
+    # this host". Two kinds of byte do not meet that bar and must not be
+    # summed into the headline the user consents to.
+    describe "bytes souji will not promise" do
+      def plan_with(*items)
+        described_class.new(
+          souji_plan_version: 1, souji_version: "0.1.0", generated_at: Time.now.iso8601,
+          scenario_path: "/tmp/s.rb", scenario_content_sha256: "x",
+          target_roots: ["/tmp"], items: items
+        )
+      end
+
+      def item(recipe, path, size_bytes: nil, metadata: {})
+        Souji::PlanItem.new(id: Souji::PlanItem.generate_id(recipe), recipe: recipe, path: path,
+                            reason: "r", size_bytes: size_bytes, metadata: metadata)
+      end
+
+      it "keeps an unmeasurable item's whole-cache size out of the total" do
+        plan = plan_with(
+          item("uv-cache", "uv-cache://prune",
+               metadata: { "size_bytes_upper_bound" => 10_000 }),
+          item("terraform-dir", "/tmp/a", size_bytes: 500)
+        )
+
+        summary = plan.summary
+
+        expect(summary[:total_bytes]).to eq(500)
+        expect(summary[:unsized_count]).to eq(1)
+        expect(summary[:upper_bound_bytes]).to eq(10_000)
+        expect(summary[:by_recipe]["uv-cache"]).to include(unsized: 1, upper_bound: 10_000, bytes: 0)
+      end
+
+      it "counts an unmeasurable item with no upper bound without inventing one" do
+        plan = plan_with(item("pnpm-store", "pnpm-store://prune"))
+
+        summary = plan.summary
+
+        expect(summary[:unsized_count]).to eq(1)
+        expect(summary[:upper_bound_bytes]).to eq(0)
+      end
+
+      it "counts the items that claim to sit outside the target roots" do
+        plan = plan_with(
+          item("uv-cache", "uv-cache://prune", metadata: { "scope_free" => true }),
+          item("docker-image", "docker-image://sha256:a", size_bytes: 1,
+                                                          metadata: { "scope_free" => true }),
+          item("node-modules", "/tmp/n", size_bytes: 1)
+        )
+
+        summary = plan.summary
+
+        expect(summary[:scope_free_count]).to eq(2)
+        expect(summary[:scope_free_recipes]).to eq(%w[docker-image uv-cache])
+      end
+
+      it "does not infer scope-freedom from the shape of a path" do
+        plan = plan_with(item("uv-cache", "uv-cache://prune", size_bytes: 1))
+
+        expect(plan.summary[:scope_free_count]).to eq(0)
+      end
+
+      it "keeps bytes freed inside a VM out of the host total" do
+        # Pruning inside a Lima or Docker Desktop VM does not shrink the
+        # VM's disk image, so the user's df will not move.
+        plan = plan_with(
+          item("docker-image", "docker-image://sha256:a", size_bytes: 8_000,
+                                                          metadata: { "host_space_unaffected" => true }),
+          item("node-modules", "/tmp/n", size_bytes: 200)
+        )
+
+        summary = plan.summary
+
+        expect(summary[:total_bytes]).to eq(200)
+        expect(summary[:vm_bytes]).to eq(8_000)
+        expect(summary[:by_recipe]["docker-image"]).to include(bytes: 0, vm_bytes: 8_000)
+      end
     end
   end
 end

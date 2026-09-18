@@ -35,4 +35,12 @@ RSpec.configure do |config|
   config.filter_run_excluding(:terraform) unless ENV["WITH_TERRAFORM"] == "1"
   config.filter_run_excluding(:git) if ENV["WITHOUT_GIT"] == "1"
   config.filter_run_excluding(:perf) unless ENV["WITH_PERF"] == "1"
+  # The tool-delegating recipes' integration tests drive the real tool.
+  # They only ever run read-only probes -- never #delete, which would
+  # prune the developer's actual cache.
+  config.filter_run_excluding(:uv)   unless ENV["WITH_UV"] == "1"
+  config.filter_run_excluding(:pnpm) unless ENV["WITH_PNPM"] == "1"
+  config.filter_run_excluding(:brew) unless ENV["WITH_BREW"] == "1"
+  config.filter_run_excluding(:mise) unless ENV["WITH_MISE"] == "1"
+  config.filter_run_excluding(:go)   unless ENV["WITH_GO"] == "1"
 end

@@ -220,13 +220,36 @@ souji apply [<plan-file>] [--yes] [--dry-run] [--log-file <path> | --no-log-file
 1. Load `<plan-file>`, validate `souji_plan_version`.
 2. Scope-check every `PlanItem.path` against `target_roots` (FR-016, FR-019).
    Any violation aborts apply with exit code 66 — even before the confirmation
-   prompt.
-3. Print summary to stdout (per-recipe item counts, estimated total size).
+   prompt. A synthetic URI is exempt from containment and instead requires its
+   recipe to declare `scope_free!`.
+3. Print the summary to stdout (see below).
 4. Confirmation gate (R9).
 5. For each item: `Recipe#verify` → if `:ok`, `Recipe#delete`. Log each
    outcome as JSONL to stderr.
 6. Emit summary line to stderr.
 7. Exit 0 if all items deleted or skipped; 73 if at least one failed.
+
+**Summary format**:
+
+The headline claims only what souji believes will actually be freed on this
+host. Up to three qualifiers follow, each suppressed when its count is zero,
+so a plan of sized, in-scope filesystem items reads with the headline alone:
+
+```
+Souji plan: /home/u/.cache/souji/default.soujiplan
+About to delete 43 items; at least 4.9 GB will be freed on this host.
+  2 items of unknown size may free up to 9.3 GB more.
+  8.9 GB is freed inside the docker VM, which does not free host disk.
+  43 items sit outside your target roots (scope-free recipes: uv-cache, ...).
+  - brew-cache:            1 items   667.3 MB
+  - docker-build-cache:    1 items   8.1 GB inside the docker VM
+  - uv-cache:              1 items   unknown, up to 9.3 GB
+Proceed? [y/N]
+```
+
+The three qualifiers correspond to `Plan#summary`'s `unsized_count` /
+`upper_bound_bytes`, `vm_bytes`, and the items whose `path` is a synthetic URI.
+See the reserved metadata keys in `plan-yaml-schema.md`.
 
 **Important non-behaviors** (FR-011a):
 

@@ -84,23 +84,69 @@ module Souji
       File.write(path, Psych.safe_dump(doc, line_width: 120))
     end
 
+    # Aggregate counts and bytes, keeping three kinds of byte apart.
+    #
+    # `size_bytes` means "souji believes this much will actually be freed
+    # on this host", and only figures that meet that bar are summed into
+    # `total_bytes`. Two kinds do not:
+    #
+    # - An item with no `size_bytes` is one whose tool cannot say what is
+    #   reclaimable (`uv cache prune` has no dry run). Its whole-cache size
+    #   goes to `upper_bound_bytes` instead. Summing an upper bound into
+    #   the total would turn "at least this much" into a promise.
+    # - An item flagged `host_space_unaffected` frees space inside a VM
+    #   disk image that does not shrink, so the host's `df` will not move.
+    #   Those bytes are real, but not here, and they go to `vm_bytes`.
+    #
+    # Items flagged `scope_free` are counted too: they sit outside the
+    # plan's `target_roots`, which the confirmation prompt has to say. That
+    # fact is read from the item's own metadata rather than re-derived from
+    # the shape of its path, so there is one place it can be wrong.
     def summary
-      by_recipe = Hash.new { |h, k| h[k] = { count: 0, bytes: 0 } }
-      total_bytes = 0
-      @items.each do |item|
-        by_recipe[item.recipe][:count] += 1
-        size = item.size_bytes || 0
-        by_recipe[item.recipe][:bytes] += size
-        total_bytes += size
-      end
+      buckets = Hash.new { |h, k| h[k] = { count: 0, bytes: 0, unsized: 0, upper_bound: 0, vm_bytes: 0 } }
+      totals = { count: 0, bytes: 0, unsized: 0, upper_bound: 0, vm_bytes: 0 }
+      @items.each { |item| accumulate(item, buckets[item.recipe], totals) }
+      scope_free = @items.select { |item| item.metadata["scope_free"] == true }
       {
-        total_count: @items.size,
-        total_bytes: total_bytes,
-        by_recipe: by_recipe
+        total_count: totals[:count],
+        total_bytes: totals[:bytes],
+        unsized_count: totals[:unsized],
+        upper_bound_bytes: totals[:upper_bound],
+        vm_bytes: totals[:vm_bytes],
+        scope_free_count: scope_free.size,
+        scope_free_recipes: scope_free.map(&:recipe).uniq.sort,
+        by_recipe: buckets
       }
     end
 
     private
+
+    def accumulate(item, bucket, totals)
+      bucket[:count] += 1
+      totals[:count] += 1
+      if item.size_bytes.nil?
+        bucket[:unsized] += 1
+        totals[:unsized] += 1
+        bound = upper_bound_for(item)
+        bucket[:upper_bound] += bound
+        totals[:upper_bound] += bound
+      elsif vm_only?(item)
+        bucket[:vm_bytes] += item.size_bytes
+        totals[:vm_bytes] += item.size_bytes
+      else
+        bucket[:bytes] += item.size_bytes
+        totals[:bytes] += item.size_bytes
+      end
+    end
+
+    def upper_bound_for(item)
+      value = item.metadata["size_bytes_upper_bound"]
+      value.is_a?(Integer) ? value : 0
+    end
+
+    def vm_only?(item)
+      item.metadata["host_space_unaffected"] == true
+    end
 
     def serialize_item(item)
       out = {

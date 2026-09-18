@@ -129,7 +129,27 @@ module Souji
     def enumerate_with(recipe_class, invocation, progress)
       instance = recipe_class.new
       instance.progress = progress
-      instance.enumerate(invocation.targets, invocation.params)
+      items = instance.enumerate(invocation.targets, invocation.params)
+      reject_undeclared_scope_escape!(recipe_class, items)
+      items
+    end
+
+    # A synthetic-URI path is the one way out of souji's containment
+    # promise, and `scope_free!` is how a recipe discloses that it takes
+    # it. A recipe that emits one without declaring it would silently make
+    # `souji recipes` and the apply confirmation understate what is about
+    # to happen, so it is a bug in the recipe and is raised as one -- here,
+    # where the recipe class is still in hand, rather than left for the
+    # plan file to be judged on later.
+    def reject_undeclared_scope_escape!(recipe_class, items)
+      return if recipe_class.scope_free?
+
+      escaping = items.find { |item| Plan::SYNTHETIC_URI_RE.match?(item.path) }
+      return unless escaping
+
+      raise ScopeViolationError,
+            "recipe #{recipe_class.recipe_name.inspect} emitted the out-of-scope path " \
+            "#{escaping.path.inspect} without declaring scope_free!"
     end
 
     def missing_commands_for(recipe_class)

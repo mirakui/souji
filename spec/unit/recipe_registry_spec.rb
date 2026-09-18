@@ -131,6 +131,14 @@ RSpec.describe Souji::Recipe do
       expect(klass.param_names).to eq([])
     end
 
+    it "defaults to not scope-free, and records the declaration when made" do
+      expect(Class.new(described_class) { recipe_name "bounded" }.scope_free?).to be false
+      expect(Class.new(described_class) do
+        recipe_name "unbounded"
+        scope_free!
+      end.scope_free?).to be true
+    end
+
     it "rejects a param declared without a description" do
       expect do
         Class.new(described_class) do
@@ -150,6 +158,12 @@ RSpec.describe Souji::Recipe do
       example.run
     end
 
+    it "declares scope-free recipes, so the disclosure cannot drift from reality" do
+      expect(described_class.fetch("docker-image").scope_free?).to be true
+      expect(described_class.fetch("git-worktree").scope_free?).to be false
+      expect(described_class.fetch("terraform-dir").scope_free?).to be false
+    end
+
     it "declares every param its #enumerate actually reads" do
       expect(described_class.fetch("git-worktree").param_names)
         .to eq(%i[merged merged_into fetch older_than_days])
@@ -158,6 +172,13 @@ RSpec.describe Souji::Recipe do
       expect(described_class.fetch("terraform-dir").param_names).to eq([:older_than_days])
       expect(described_class.fetch("node-modules").param_names).to eq([:older_than_days])
       expect(described_class.fetch("python-venv").param_names).to eq([:older_than_days])
+      expect(described_class.fetch("docker-container").param_names).to eq([:older_than_days])
+      expect(described_class.fetch("docker-build-cache").param_names).to eq([:unused_for_days])
+      expect(described_class.fetch("uv-cache").param_names).to eq([])
+      expect(described_class.fetch("pnpm-store").param_names).to eq([])
+      expect(described_class.fetch("brew-cache").param_names).to eq([:prune_days])
+      expect(described_class.fetch("mise-version").param_names).to eq([:tools])
+      expect(described_class.fetch("go-cache").param_names).to eq(%i[build_cache mod_cache])
     end
   end
 

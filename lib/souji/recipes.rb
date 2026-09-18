@@ -17,8 +17,21 @@ module Souji
     autoload :NodeModules,        "souji/recipes/node_modules"
     autoload :PythonVenv,         "souji/recipes/python_venv"
     autoload :DockerImage,        "souji/recipes/docker_image"
+    autoload :DockerContainer,    "souji/recipes/docker_container"
+    autoload :DockerBuildCache,   "souji/recipes/docker_build_cache"
+    autoload :UvCache,            "souji/recipes/uv_cache"
+    autoload :PnpmStore,          "souji/recipes/pnpm_store"
+    autoload :BrewCache,          "souji/recipes/brew_cache"
+    autoload :GoCache,            "souji/recipes/go_cache"
+    autoload :MiseVersion,        "souji/recipes/mise_version"
 
-    BUILTIN_NAMES = %w[git-worktree terraform-provider terraform-dir node-modules python-venv docker-image].freeze
+    BUILTIN_NAMES = %w[
+      git-worktree
+      terraform-provider terraform-dir
+      node-modules python-venv
+      docker-image docker-container docker-build-cache
+      uv-cache pnpm-store brew-cache go-cache mise-version
+    ].freeze
 
     module_function
 
