@@ -48,14 +48,20 @@ module Souji
       # spurious failures for itself.
       GRACE_SECONDS = 5
 
+      # Only variables that suppress prompting, colour and background
+      # updates belong here. Nothing that changes what a tool would
+      # *do*: HOMEBREW_NO_INSTALL_FROM_API looked like it belonged, but it
+      # switches Homebrew to its local tap, which changed the size
+      # `brew cleanup --dry-run` reported by 230 MB and could trigger a
+      # tap clone slow enough to blow the probe timeout. souji must
+      # observe the tool the user has, not a differently configured one.
       NONINTERACTIVE_ENV = {
         "NO_COLOR" => "1",
         "CI" => "1",
         "DEBIAN_FRONTEND" => "noninteractive",
         "GIT_TERMINAL_PROMPT" => "0",
         "HOMEBREW_NO_AUTO_UPDATE" => "1",
-        "HOMEBREW_NO_ENV_HINTS" => "1",
-        "HOMEBREW_NO_INSTALL_FROM_API" => "1"
+        "HOMEBREW_NO_ENV_HINTS" => "1"
       }.freeze
 
       module_function

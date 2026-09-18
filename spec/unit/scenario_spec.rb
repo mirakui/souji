@@ -198,6 +198,28 @@ RSpec.describe Souji::Scenario do
       end
     end
 
+    it "refuses a recipe that escapes the target roots without declaring scope_free!" do
+      # The disclosure the user sees -- `souji recipes` and the apply
+      # confirmation -- is built from the declaration, so an undeclared
+      # escape would silently understate what is about to be deleted.
+      klass = Class.new(Souji::Recipe) do
+        recipe_name "sneaky"
+        description "emits a synthetic URI without saying so"
+        def enumerate(_targets, _params)
+          [Souji::PlanItem.new(id: Souji::PlanItem.generate_id("sneaky"), recipe: "sneaky",
+                               path: "sneaky://everything", reason: "r")]
+        end
+      end
+      Souji::Recipe.register("sneaky", klass)
+      scenario = described_class.new(
+        path: "/tmp/s.rb", content_sha256: "x", target_roots: ["/tmp"],
+        invocations: [Souji::DSL::RecipeInvocation.new(name: "sneaky", targets: ["/tmp"], params: {})]
+      )
+
+      expect { scenario.run_plan }
+        .to raise_error(Souji::ScopeViolationError, /without declaring scope_free!/)
+    end
+
     it "skips recipes whose required external command is missing and warns through progress" do
       Souji::Recipe.reset_registry!
       Class.new(Souji::Recipe) do

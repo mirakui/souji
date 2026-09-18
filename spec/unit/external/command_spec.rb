@@ -57,6 +57,13 @@ RSpec.describe Souji::External::Command do
       expect(result.stdout.strip).to eq("1-0-1")
     end
 
+    it "sets nothing that would change what a tool decides to do" do
+      # HOMEBREW_NO_INSTALL_FROM_API belonged here by the original design
+      # and had to come out: it switches Homebrew to its local tap, which
+      # moved the size `brew cleanup --dry-run` reported by 230 MB.
+      expect(described_class::NONINTERACTIVE_ENV).not_to have_key("HOMEBREW_NO_INSTALL_FROM_API")
+    end
+
     it "lets a caller add to the environment" do
       result = described_class.run("sh", "-c", "echo $SOUJI_SPEC", env: { "SOUJI_SPEC" => "here" })
 

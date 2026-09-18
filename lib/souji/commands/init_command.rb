@@ -154,6 +154,65 @@ module Souji
         # worktree then goes to the trash as one unit and the nested items
         # report "already removed" when apply re-verifies them.
         #
+        # 2b. Recipes that ask a tool to prune its own cache. These are
+        #     "scope-free": they act on the tool's own store, so the
+        #     targets above do not bound them -- what bounds them is the
+        #     tool's idea of what is unreferenced. souji never deletes
+        #     these files itself, and nothing goes to the trash, so every
+        #     one of these deletions is irreversible. `souji recipes`
+        #     marks them, and the plan records the exact command that
+        #     will run.
+        #
+        # uv-cache -- `uv cache prune` drops the objects in uv's cache
+        #   that nothing references. No options. The plan cannot promise a
+        #   figure here (uv reports only the whole cache size), so it
+        #   offers that as an upper bound instead.
+        #
+        # recipe "uv-cache"
+        #
+        # pnpm-store -- `pnpm store prune` removes the packages in pnpm's
+        #   store that no project references. No options, and no size at
+        #   all: the store is hardlinked into the node_modules trees that
+        #   node-modules already counts.
+        #
+        # recipe "pnpm-store"
+        #
+        # brew-cache -- `brew cleanup` removes outdated downloads. souji
+        #   reads `--dry-run` first, so this one reports a real size and
+        #   lists what it saw.
+        #
+        #   prune_days:  remove downloads older than this many days
+        #                instead of all of them (default: all)
+        #
+        # recipe "brew-cache"
+        # recipe "brew-cache", prune_days: 30
+        #
+        # mise-version -- tool versions no tracked mise config references,
+        #   one item per version, each removed with `mise uninstall`.
+        #   Note that "referenced" means referenced by a config mise has
+        #   tracked, which is not the same as your targets: open an old
+        #   project and a version stops being prunable.
+        #
+        #   tools:  only propose versions of these tools (default: every
+        #           prunable tool)
+        #
+        # recipe "mise-version"
+        # recipe "mise-version", tools: ["awscli", "terraform"]
+        #
+        # go-cache -- `go clean`. Unlike the recipes above, this does not
+        #   remove what is unreferenced, it removes EVERYTHING, so each
+        #   half is opt-in and a bare `recipe "go-cache"` proposes
+        #   nothing.
+        #
+        #   build_cache:  wipe GOCACHE; costs only a rebuild
+        #                 (default: false)
+        #   mod_cache:    wipe GOMODCACHE; forces a re-download of every
+        #                 module and breaks offline builds until it has
+        #                 run (default: false)
+        #
+        # recipe "go-cache", build_cache: true
+        # recipe "go-cache", build_cache: true, mod_cache: true
+        #
         # 3. Narrow a recipe to a subset of the targets with with_targets.
         #    The paths must sit inside an already-declared target -- this
         #    narrows the scope, it cannot create one.

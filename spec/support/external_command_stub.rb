@@ -10,7 +10,9 @@ module Souji
     # `Open3.capture3` directly there would be nothing to stub.
     #
     # Registered argv patterns are matched longest-prefix-first, so a
-    # specific stub wins over a general one.
+    # specific stub wins over a general one; among equally specific stubs
+    # the most recently registered wins, so re-stubbing the same command
+    # mid-example replaces the earlier answer.
     module ExternalCommandStub
       # Anything in here, in an argv that does not also carry --dry-run,
       # mutates the tool's state. `#enumerate` must never invoke one:
@@ -67,8 +69,10 @@ module Souji
 
       def best_match(argv)
         external_stubs
-          .select { |stub| argv.first(stub[:argv].size) == stub[:argv] }
-          .max_by { |stub| stub[:argv].size }
+          .each_with_index
+          .select { |stub, _index| argv.first(stub[:argv].size) == stub[:argv] }
+          .max_by { |stub, index| [stub[:argv].size, index] }
+          &.first
       end
     end
   end
