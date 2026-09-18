@@ -154,6 +154,37 @@ module Souji
         # worktree then goes to the trash as one unit and the nested items
         # report "already removed" when apply re-verifies them.
         #
+        # docker-container -- containers that have stopped for good:
+        #   exited, created but never started, or dead. One item each,
+        #   with its own size. Running containers cannot be proposed:
+        #   the listing is filtered to terminal states and filtered
+        #   again in souji, the state is re-checked immediately before
+        #   removal, and `docker rm` is run without -f so even losing
+        #   that race fails instead of killing something. -v is never
+        #   passed either: a container's volumes are not ours.
+        #
+        #   older_than_days:  only propose containers created at least
+        #                     this many days ago (default: no age filter)
+        #
+        # recipe "docker-container"
+        # recipe "docker-container", older_than_days: 30
+        #
+        # docker-build-cache -- the reclaimable part of docker's buildkit
+        #   cache, via `docker builder prune -f`. Never -a, so cache
+        #   still in use is left alone. One opaque item: docker has no
+        #   supported per-record delete.
+        #
+        #   unused_for_days:  only prune records unused for at least this
+        #                     many days (default: all reclaimable)
+        #
+        # recipe "docker-build-cache"
+        # recipe "docker-build-cache", unused_for_days: 30
+        #
+        # On macOS the docker daemon runs inside a Linux VM, and pruning
+        # inside it does not shrink the VM's disk image -- the space is
+        # freed in the VM and your `df` does not move. souji says so
+        # while planning and keeps those bytes out of the host total.
+        #
         # 2b. Recipes that ask a tool to prune its own cache. These are
         #     "scope-free": they act on the tool's own store, so the
         #     targets above do not bound them -- what bounds them is the

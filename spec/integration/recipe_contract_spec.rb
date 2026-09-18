@@ -48,6 +48,7 @@ RSpec.describe "Recipe contract (shared expectations)" do
   # so adding one is a deliberate edit rather than a side effect.
   it "keeps the set of scope-free recipes small and deliberate" do
     expect(recipes.select(&:scope_free?).map(&:recipe_name).sort)
-      .to eq(%w[brew-cache docker-image go-cache mise-version pnpm-store uv-cache])
+      .to eq(%w[brew-cache docker-build-cache docker-container docker-image go-cache
+                mise-version pnpm-store uv-cache])
   end
 end

@@ -172,6 +172,13 @@ RSpec.describe Souji::Recipe do
       expect(described_class.fetch("terraform-dir").param_names).to eq([:older_than_days])
       expect(described_class.fetch("node-modules").param_names).to eq([:older_than_days])
       expect(described_class.fetch("python-venv").param_names).to eq([:older_than_days])
+      expect(described_class.fetch("docker-container").param_names).to eq([:older_than_days])
+      expect(described_class.fetch("docker-build-cache").param_names).to eq([:unused_for_days])
+      expect(described_class.fetch("uv-cache").param_names).to eq([])
+      expect(described_class.fetch("pnpm-store").param_names).to eq([])
+      expect(described_class.fetch("brew-cache").param_names).to eq([:prune_days])
+      expect(described_class.fetch("mise-version").param_names).to eq([:tools])
+      expect(described_class.fetch("go-cache").param_names).to eq(%i[build_cache mod_cache])
     end
   end
 
