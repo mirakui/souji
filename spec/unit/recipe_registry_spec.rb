@@ -131,6 +131,14 @@ RSpec.describe Souji::Recipe do
       expect(klass.param_names).to eq([])
     end
 
+    it "defaults to not scope-free, and records the declaration when made" do
+      expect(Class.new(described_class) { recipe_name "bounded" }.scope_free?).to be false
+      expect(Class.new(described_class) do
+        recipe_name "unbounded"
+        scope_free!
+      end.scope_free?).to be true
+    end
+
     it "rejects a param declared without a description" do
       expect do
         Class.new(described_class) do
@@ -148,6 +156,12 @@ RSpec.describe Souji::Recipe do
       described_class.reset_registry!
       Souji::Recipes.load_builtins!
       example.run
+    end
+
+    it "declares scope-free recipes, so the disclosure cannot drift from reality" do
+      expect(described_class.fetch("docker-image").scope_free?).to be true
+      expect(described_class.fetch("git-worktree").scope_free?).to be false
+      expect(described_class.fetch("terraform-dir").scope_free?).to be false
     end
 
     it "declares every param its #enumerate actually reads" do

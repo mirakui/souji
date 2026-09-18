@@ -10,6 +10,7 @@ module Souji
   # explicitly when they need a specific module without pulling the rest.
   autoload :ExitCodes,    "souji/exit_codes"
   autoload :FsScan,       "souji/fs_scan"
+  autoload :External,     "souji/external"
   autoload :Paths,        "souji/paths"
   autoload :PlanItem,     "souji/plan_item"
   autoload :Plan,         "souji/plan"

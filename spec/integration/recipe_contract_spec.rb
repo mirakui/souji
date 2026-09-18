@@ -40,4 +40,33 @@ RSpec.describe "Recipe contract (shared expectations)" do
       expect(klass.description).to be_a(String).and(satisfy { |s| !s.empty? })
     end
   end
+
+  # souji's headline safety promise is that nothing outside a declared
+  # target is touched, and a synthetic-URI path is the one way out of it.
+  # Checking the declaration against the paths a recipe actually emits, in
+  # both directions, turns the escape hatch from an unenforced convention
+  # into something a reviewer can rely on.
+  describe "scope containment and its declared exception" do
+    it "declares scope_free! exactly when a recipe's items escape the target roots" do
+      by_declaration = recipes.group_by(&:scope_free?)
+
+      expect(by_declaration[true].map(&:recipe_name).sort).to eq(escaping_recipe_names.sort)
+      expect(by_declaration[false].map(&:recipe_name) & escaping_recipe_names).to be_empty
+    end
+
+    # A recipe escapes containment when the paths it builds are synthetic
+    # URIs. Read off the source rather than guessed: every plan item a
+    # scope-free recipe builds does so from a "<scheme>://" literal named
+    # after the recipe.
+    def escaping_recipe_names
+      recipes.map(&:recipe_name).select do |name|
+        source = File.read(recipe_source_path(name))
+        source.include?(%("#{name}://))
+      end
+    end
+
+    def recipe_source_path(name)
+      File.expand_path("../../lib/souji/recipes/#{name.tr("-", "_")}.rb", __dir__)
+    end
+  end
 end

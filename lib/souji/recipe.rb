@@ -46,6 +46,30 @@ module Souji
         end
       end
 
+      # Declares that this recipe's items do not live under the scenario's
+      # target roots -- it acts on a tool's own store (a docker daemon, a
+      # package manager's cache) and its items carry a synthetic URI
+      # rather than a path.
+      #
+      # souji's headline safety promise is that nothing outside a declared
+      # target can be touched, and `Plan#validate_scope_containment!`
+      # enforces it. These recipes are the exception, so the exception is
+      # declared rather than merely implied by the URI: `souji recipes`
+      # marks them, `souji apply` says how many items are affected before
+      # asking for confirmation, and the recipe contract spec checks the
+      # declaration against what each recipe actually emits, in both
+      # directions.
+      #
+      # What bounds a scope-free recipe instead is the tool's own notion of
+      # "unreferenced", which is not the same thing as your targets.
+      def scope_free!
+        @scope_free = true
+      end
+
+      def scope_free?
+        @scope_free || false
+      end
+
       def description(text = nil)
         return @description if text.nil?
 
