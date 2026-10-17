@@ -9,8 +9,17 @@ RSpec.describe Souji::Recipes::DockerImage do
 
   after { Souji::External::Docker.reset! }
 
-  def stub_dangling(json = docker_image_ls_dangling_json)
+  def stub_dangling(json = docker_image_ls_dangling_json, containers: {})
     stub_external("docker", "image", "ls", stdout: json)
+    stub_containers(containers)
+  end
+
+  # containers: { container_id => image_id }, in any state -- docker ps -a
+  # does not distinguish, and neither does `docker image rm`.
+  def stub_containers(containers)
+    stub_external("docker", "ps", "-a", "-q", "--no-trunc", stdout: containers.keys.map { |c| "#{c}\n" }.join)
+    stub_external("docker", "container", "inspect", "--format", "{{.Image}}",
+                  stdout: containers.values.map { |i| "#{i}\n" }.join)
   end
 
   describe "class-level declarations" do
@@ -68,7 +77,64 @@ RSpec.describe Souji::Recipes::DockerImage do
       expect(recipe.enumerate([], {})).to eq([])
     end
 
+    describe "container ancestry" do
+      # docker's `dangling=true` means only "untagged". An untagged image a
+      # stopped container was created from is still listed, and
+      # `docker image rm` refuses it -- which is how a scenario declaring
+      # docker-image before docker-container failed at apply.
+      it "excludes images a stopped or created container was made from" do
+        stub_external("docker", "info", stdout: docker_info_native_json)
+        stub_dangling(containers: { "5fe2176147fc" => "sha256:aaaa" })
+
+        ids = recipe.enumerate([], {}).map { |i| i.metadata["image_id"] }
+
+        expect(ids).to eq(["sha256:bbbb"])
+      end
+
+      it "looks at containers in every state, not just running ones" do
+        stub_external("docker", "info", stdout: docker_info_native_json)
+        stub_dangling
+
+        recipe.enumerate([], {})
+
+        expect(external_calls).to include(%w[docker ps -a -q --no-trunc])
+      end
+
+      it "proposes nothing when it cannot list containers, rather than guessing" do
+        stub_external("docker", "info", stdout: docker_info_native_json)
+        stub_external("docker", "image", "ls", stdout: docker_image_ls_dangling_json)
+        stub_external("docker", "ps", "-a", "-q", "--no-trunc", stderr: "daemon gone", exitstatus: 1)
+        stub_host_os("linux-gnu")
+        progress = instance_double(Souji::Progress, scanning: nil)
+        recipe.progress = progress
+
+        expect(progress).to receive(:note).with(/cannot rule out container ancestry/)
+        expect(recipe.enumerate([], {})).to eq([])
+      end
+
+      it "proposes nothing when inspecting the containers fails" do
+        stub_external("docker", "info", stdout: docker_info_native_json)
+        stub_external("docker", "image", "ls", stdout: docker_image_ls_dangling_json)
+        stub_external("docker", "ps", "-a", "-q", "--no-trunc", stdout: "c1\n")
+        stub_external("docker", "container", "inspect", exitstatus: -1, timed_out: true)
+
+        expect(recipe.enumerate([], {})).to eq([])
+      end
+
+      it "does not ask about containers when there are no dangling images" do
+        stub_external("docker", "info", stdout: docker_info_native_json)
+        stub_dangling("")
+
+        recipe.enumerate([], {})
+
+        expect(external_calls).not_to include(%w[docker ps -a -q --no-trunc])
+      end
+    end
+
     it "filters on age when asked, and drops images whose age it cannot read" do
+      # Pinned: the fixture's newer image ages past any threshold against
+      # the real clock.
+      allow(Time).to receive(:now).and_return(Time.new(2026, 9, 20, 0, 0, 0, "+09:00"))
       stub_external("docker", "info", stdout: docker_info_native_json)
       unreadable = %({"ID":"sha256:cccc","Size":"1MB","CreatedAt":"not a timestamp"}\n)
       stub_dangling("#{unreadable}#{docker_image_ls_dangling_json}")
@@ -128,11 +194,32 @@ RSpec.describe Souji::Recipes::DockerImage do
                           metadata: { "image_id" => "sha256:aaaa" })
     end
 
-    it "accepts an image that is still present and still untagged" do
+    def stub_present_untagged
       stub_external("docker", "image", "inspect", stdout: "[{}]")
       stub_external("docker", "image", "inspect", "--format", stdout: "[]")
+    end
+
+    it "accepts an image that is still present, still untagged and used by no container" do
+      stub_present_untagged
+      stub_external("docker", "ps", "-a", "-q", "--no-trunc", "--filter", "ancestor=sha256:aaaa", stdout: "")
 
       expect(recipe.verify(item)).to eq(:ok)
+    end
+
+    it "skips an image a container has been created from since planning" do
+      stub_present_untagged
+      stub_external("docker", "ps", "-a", "-q", "--no-trunc", "--filter", "ancestor=sha256:aaaa",
+                    stdout: "5fe2176147fc0123456789\n")
+
+      expect(recipe.verify(item)).to eq([:skip, "image is used by 1 container(s) (5fe2176147fc)"])
+    end
+
+    it "skips rather than deletes when it cannot check container ancestry" do
+      stub_present_untagged
+      stub_external("docker", "ps", "-a", "-q", "--no-trunc", "--filter", "ancestor=sha256:aaaa",
+                    stderr: "Cannot connect to the Docker daemon", exitstatus: 1)
+
+      expect(recipe.verify(item)).to match([:skip, /could not check container ancestry: Cannot connect/])
     end
 
     it "skips an image that has gone" do
@@ -163,9 +250,18 @@ RSpec.describe Souji::Recipes::DockerImage do
     end
 
     it "reports the tool's own stderr on failure" do
-      stub_external("docker", "image", "rm", stderr: "image is being used\n", exitstatus: 1)
+      stub_external("docker", "image", "rm", stderr: "no space left on device\n", exitstatus: 1)
 
-      expect(recipe.delete(item)).to match([:failed, /image is being used/])
+      expect(recipe.delete(item)).to match([:failed, /docker image rm failed: no space left/])
+    end
+
+    it "skips, not fails, when a container still uses the image" do
+      # The race verify narrows but cannot close.
+      stub_external("docker", "image", "rm", exitstatus: 1, stderr: <<~ERR)
+        Error response from daemon: conflict: unable to delete ed134ce8cc30 (must be forced) - image is being used by stopped container 5fe2176147fc
+      ERR
+
+      expect(recipe.delete(item)).to match([:skip, /image is in use by a container: .*stopped container 5fe2176147fc/])
     end
 
     it "reports a timeout as a failure rather than hanging the run" do
