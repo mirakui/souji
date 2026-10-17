@@ -130,5 +130,18 @@ RSpec.describe Souji::Recipes::UvCache do
 
       expect(recipe.delete(subject_item)).to match([:failed, /timed out after 900s/])
     end
+
+    it "skips, not fails, when another uv process holds the cache lock" do
+      # Long-running `uvx` tools hold ~/.cache/uv/.lock for as long as they
+      # run; uv gives up after UV_LOCK_TIMEOUT having touched nothing.
+      subject_item = item
+      stub_external("uv", "cache", "prune", exitstatus: 2, stderr: <<~ERR)
+        Cache is currently in-use, waiting for other uv processes to finish (use `--force` to override)
+        error: Timeout (300s) when waiting for lock on `/tmp/uvcache` at `/tmp/uvcache/.lock`, is another uv process running? You can set `UV_LOCK_TIMEOUT` to increase the timeout.
+      ERR
+
+      expect(recipe.delete(subject_item))
+        .to match([:skip, /uv cache prune did not run, the cache is locked: error: Timeout \(300s\)/])
+    end
   end
 end

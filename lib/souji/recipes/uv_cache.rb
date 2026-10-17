@@ -31,6 +31,12 @@ module Souji
       scope_free!
       description "Ask uv to prune unreachable objects from its cache (uv cache prune)"
 
+      # uv waits UV_LOCK_TIMEOUT (300s by default) for the cache lock and
+      # then gives up with this message. Long-running `uvx` tools hold that
+      # lock for as long as they run, so this is "try again later", not a
+      # broken cache.
+      LOCK_TIMEOUT_RE = /Timeout \(\d+s\) when waiting for lock|another uv process/
+
       def enumerate(_target_roots, _params)
         dir = cache_dir
         return [] unless dir && Dir.exist?(dir)
@@ -44,7 +50,7 @@ module Souji
       end
 
       def delete(plan_item)
-        run_delegated(plan_item)
+        run_delegated(plan_item, busy: LOCK_TIMEOUT_RE)
       end
 
       private
