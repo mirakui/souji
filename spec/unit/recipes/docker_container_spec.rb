@@ -71,6 +71,9 @@ RSpec.describe Souji::Recipes::DockerContainer do
     end
 
     it "filters on age when asked" do
+      # Pinned: the fixture's newer container ages past any threshold
+      # against the real clock.
+      allow(Time).to receive(:now).and_return(Time.new(2026, 9, 20, 0, 0, 0, "+09:00"))
       stub_ps
 
       items = recipe.enumerate([], older_than_days: 30)
