@@ -46,13 +46,21 @@ module Souji
       # Runs the argv recorded in the item, and nothing else. Always
       # :deleted rather than :trashed: souji never holds these paths, so
       # there is nothing for Souji::Trash to move.
-      def run_delegated(plan_item, timeout: Command::PRUNE_TIMEOUT)
+      #
+      # `busy:` is the tool's own wording for "another process holds my
+      # lock". That is a fact about the moment, not about the cache: the
+      # tool refused before touching anything, so the item is skipped with
+      # the tool's explanation instead of being counted as a failure.
+      def run_delegated(plan_item, timeout: Command::PRUNE_TIMEOUT, busy: nil)
         argv = plan_item.metadata["argv"]
         return [:failed, "plan item records no command to run"] unless argv.is_a?(Array) && !argv.empty?
 
         result = Command.run(*argv, timeout: timeout)
         return :deleted if result.success?
         return [:failed, "#{argv.join(" ")} timed out after #{timeout}s"] if result.timed_out
+
+        busy_line = busy && matching_line(result.stderr, busy)
+        return [:skip, "#{argv.join(" ")} did not run, the cache is locked: #{busy_line}"] if busy_line
 
         [:failed, "#{argv.join(" ")} failed: #{last_line(result.stderr)}"]
       end
@@ -86,9 +94,17 @@ module Souji
         }
       end
 
+      def matching_line(text, pattern)
+        line = text.to_s.lines.map(&:strip).find { |l| l.match?(pattern) }
+        line && truncate(line)
+      end
+
       def last_line(text)
-        line = text.to_s.lines.map(&:strip).reject(&:empty?).last || "no error output"
-        line.length > 200 ? "#{line[0, 197]}..." : line
+        truncate(text.to_s.lines.map(&:strip).reject(&:empty?).last || "no error output")
+      end
+
+      def truncate(line, max = 200)
+        line.length > max ? "#{line[0, max - 3]}..." : line
       end
     end
   end
